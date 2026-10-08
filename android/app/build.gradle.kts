@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "com.example.tugas_akhir"
     compileSdk = flutter.compileSdkVersion
-    // ndkVersion = flutter.ndkVersion
+    // flutter pub add flutter_secure_storagendkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
