@@ -2,6 +2,13 @@
 
 Sebuah app mobile yang berkaitan dengan tema kampus/universitas yang dibuat spt micro-siakad dan ada fitur lain
 
+1. Satria Wijaya (20240801048)
+2. Zhabbala Mendieta Priyadi(20240801145)
+3. M Alifyan Falyandra (20240801172)
+4. William (20240801372)
+5. Farizzi Rafli Hakim (20240801248)
+6. Razy Ahmad Tharfa (20240801183)
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
