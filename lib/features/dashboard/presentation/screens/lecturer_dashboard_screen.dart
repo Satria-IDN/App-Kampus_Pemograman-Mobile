@@ -1030,21 +1030,53 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
   Widget _buildHistorySessionCard(String title, String detail, String recap, String pct) {
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-              const SizedBox(height: 2),
-              Text(detail, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-              const SizedBox(height: 4),
-              Text(recap, style: const TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textDark,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail,
+                  style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  recap,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
-          Text(pct, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.badgeGreen)),
+          const SizedBox(width: 12),
+          Text(
+            pct,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: AppColors.badgeGreen,
+            ),
+          ),
         ],
       ),
     );
