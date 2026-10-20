@@ -184,8 +184,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             child: Text(
                               _selectedRole == 'admin'
-                                  ? 'Contoh: ADM-01'
-                                  : (_selectedRole == 'dosen' ? 'Contoh: 0412058901' : 'Contoh: 20240801048'),
+                                  ? 'Contoh: ADM001'
+                                  : (_selectedRole == 'dosen' ? 'Contoh: 8041' : 'Contoh: 20240801048'),
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: AppColors.primary,

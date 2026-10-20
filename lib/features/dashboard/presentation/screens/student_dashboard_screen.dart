@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../../core/services/session_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 import '../../../../core/services/geofence_service.dart';
+import '../../../../core/services/qr_token_service.dart';
+import 'dart:convert';
+import '../../../../core/services/attendance_service.dart';
 
 class StudentDashboardScreen extends StatefulWidget {
   final UserModel? user;
@@ -220,7 +224,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Grid 4 Aksi Cepat (Bisa Ditekan)
+          // Grid 4 Aksi Cepat
           Row(
             children: [
               Expanded(
@@ -338,7 +342,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             ),
           ),
           const SizedBox(height: 14),
-          // Indikator Status GPS
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: const [
@@ -354,7 +357,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   }
 
   // ==========================================
-  // TAB 1: JADWAL & AGENDA KAMPUS (Figma Screens)
+  // TAB 1: JADWAL & AGENDA KAMPUS
   // ==========================================
   Widget _buildTabJadwal() {
     return SingleChildScrollView(
@@ -371,7 +374,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Filter Pills (Semua | Kuliah KRS | Event)
           Row(
             children: [
               _buildFilterChip('Semua'),
@@ -383,7 +385,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Kalender Horizontal Mingguan Interaktif
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
@@ -412,7 +413,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           const Text('Perkuliahan Hari Ini', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
           const SizedBox(height: 10),
 
-          // Card Jadwal 1
           _buildJadwalItemCard(
             code: 'IF3201',
             title: 'Pemrograman Mobile',
@@ -425,7 +425,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Card Jadwal 2
           _buildJadwalItemCard(
             code: 'IF3204',
             title: 'Basis Data Terdistribusi',
@@ -438,7 +437,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Event & Agenda Kampus
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: const [
@@ -517,7 +515,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   }
 
   // ==========================================
-  // TAB 3: PROFIL & TOLERANSI ALPA (Figma Screen 2)
+  // TAB 3: PROFIL & TOLERANSI ALPA
   // ==========================================
   Widget _buildTabProfil(String name, String nim) {
     return SingleChildScrollView(
@@ -525,7 +523,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Profil
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
@@ -554,7 +551,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 12),
 
-          // 3 Kotak Statistik (Semester, IPK, SKS)
           Row(
             children: [
               _buildProfileStatBox('Semester', '5'),
@@ -566,7 +562,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Regulasi Toleransi Alpa (Figma Card Kritis)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: const [
@@ -578,7 +573,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           const Text('Maksimal toleransi alpa per matkul adalah 3 kali sebelum pencekalan UAS.', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
           const SizedBox(height: 12),
 
-          // Matkul 1: Kritis (Alpa 2/3 - Merah)
           _buildAlpaCard(
             courseTitle: 'Kalkulus Lanjut',
             sks: '3 SKS • Semester Genap',
@@ -589,7 +583,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 10),
 
-          // Matkul 2: Waspada (Alpa 1/3 - Oranye)
           _buildAlpaCard(
             courseTitle: 'Pemrograman Berorientasi Objek',
             sks: '3 SKS • Semester Genap',
@@ -600,7 +593,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 10),
 
-          // Matkul 3: Aman (Alpa 0/3 - Hijau)
           _buildAlpaCard(
             courseTitle: 'Pemrograman Mobile',
             sks: '3 SKS • Semester Genap',
@@ -611,7 +603,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Tombol Keluar / Logout
           SizedBox(
             width: double.infinity,
             height: 46,
@@ -637,11 +628,11 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
-// ==========================================
-  // MODAL BOTTOM SHEET: DUAL-GUARD SCANNER (Dengan Validasi GPS Riil)
+  // ==========================================
+  // MODAL BOTTOM SHEET: DUAL-GUARD SCANNER (Dengan Kamera Riil & Anti-Spam)
   // ==========================================
   void _showDualGuardScannerModal(BuildContext context) async {
-    // 1. Parameter Target Geofence Lab 301 (Gedung B)
+    // 1. Parameter Target Geofence
     const double targetLat = -6.192243;
     const double targetLng = 106.988946;
     const double classRadius = 50.0;
@@ -689,10 +680,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ],
         ),
       );
-      return; // Batalkan pembukaan modal jika tidak sah
+      return;
     }
 
-    // 4. Jika posisi VALID (di dalam radius): Buka Modal Scanner Dual-Guard
+    // Flag pencegah multi-scan saat kamera membaca frame
+    bool isProcessingScan = false;
+
+    // 4. Jika posisi VALID: Buka Modal Scanner Dual-Guard
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -736,28 +730,93 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Viewfinder Mockup
-              Container(
-                width: 240,
-                height: 240,
-                decoration: BoxDecoration(
+// Kamera Pemindai Riil dengan Integrasi Supabase RPC
+              SizedBox(
+                width: 260,
+                height: 260,
+                child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: AppColors.primary, width: 2.5),
-                ),
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.qr_code_scanner_rounded, size: 80, color: Colors.white54),
-                      SizedBox(height: 10),
-                      Text('Posisikan QR Dosen di dalam bingkai', style: TextStyle(fontSize: 11, color: Colors.white70)),
-                    ],
+                  child: MobileScanner(
+                    onDetect: (capture) async {
+                      if (isProcessingScan) return; // Mencegah scan berulang
+
+                      final barcodes = capture.barcodes;
+                      if (barcodes.isNotEmpty) {
+                        final code = barcodes.first.rawValue;
+                        if (code != null) {
+                          isProcessingScan = true;
+                          final isValidToken = QrTokenService.validateToken(code);
+
+                          if (isValidToken) {
+                            Navigator.pop(ctx); // Tutup modal kamera
+
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                duration: Duration(seconds: 1),
+                                content: Text('Menyimpan presensi ke database...'),
+                              ),
+                            );
+
+                            try {
+                              // 1. Ekstrak data session_id dari QR token JSON
+                              final payload = jsonDecode(code);
+                              final sessionId = payload['session_id'] as String;
+
+                              // 2. Eksekusi Stored Procedure RPC Supabase
+                              final response = await AttendanceService.submitAttendance(
+                                sessionId: sessionId,
+                                distance: result.distanceInMeters,
+                                isMocked: result.isMocked,
+                              );
+
+                              if (!context.mounted) return;
+
+                              // 3. Tampilkan status respon dari server
+                              if (response['success'] == true) {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: AppColors.badgeGreen,
+                                    content: Text(response['message'] ?? 'Presensi Sah! Terverifikasi GPS & Dynamic QR.'),
+                                  ),
+                                );
+                              } else {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: AppColors.badgeRed,
+                                    content: Text(response['message'] ?? 'Presensi ditolak oleh server.'),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  backgroundColor: AppColors.badgeRed,
+                                  content: Text('Format QR tidak sesuai: $e'),
+                                ),
+                              );
+                            }
+                          } else {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                backgroundColor: AppColors.badgeRed,
+                                content: Text('QR Kadaluarsa atau Tidak Valid! Coba lagi.'),
+                              ),
+                            );
+                            // Beri jeda 2 detik sebelum mengizinkan pemindaian ulang jika gagal
+                            Future.delayed(const Duration(seconds: 2), () {
+                              isProcessingScan = false;
+                            });
+                          }
+                        }
+                      }
+                    },
                   ),
                 ),
               ),
               const SizedBox(height: 20),
 
-              // Hasil Verifikasi Sukses (Figma White Card Bottom)
+              // Kartu Status Panduan Mahasiswa
               Expanded(
                 child: Container(
                   width: double.infinity,
@@ -771,13 +830,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                     children: [
                       Container(
                         padding: const EdgeInsets.all(8),
-                        decoration: const BoxDecoration(color: Color(0xFFDCFCE7), shape: BoxShape.circle),
-                        child: const Icon(Icons.check_rounded, color: AppColors.badgeGreen, size: 28),
+                        decoration: const BoxDecoration(color: Color(0xFFEEF2FF), shape: BoxShape.circle),
+                        child: const Icon(Icons.qr_code_scanner_rounded, color: AppColors.primary, size: 28),
                       ),
                       const SizedBox(height: 8),
-                      const Text('Presensi Berhasil Dicatat!', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+                      const Text('Arahkan ke QR Dosen', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
                       Text(
-                        'Terkonfirmasi melalui Geofence (${result.distanceInMeters.toStringAsFixed(1)}m) & Dynamic Token',
+                        'Geofence Terverifikasi (${result.distanceInMeters.toStringAsFixed(1)}m) • QR berganti tiap 20 detik',
                         style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
                         textAlign: TextAlign.center,
                       ),
@@ -790,7 +849,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: const [
                             Text('Pemrograman Mobile', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                            Text('08:14 WIB • Hadir', style: TextStyle(fontSize: 12, color: AppColors.badgeGreen, fontWeight: FontWeight.bold)),
+                            Text('Menunggu Scan...', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ),
@@ -799,13 +858,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                       SizedBox(
                         width: double.infinity,
                         height: 46,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Color(0xFFCBD5E1)),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                           onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Tutup & Kembali ke Beranda', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          child: const Text('Batal & Tutup Kamera', style: TextStyle(color: AppColors.textDark, fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ],
