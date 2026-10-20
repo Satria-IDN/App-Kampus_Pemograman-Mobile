@@ -3,6 +3,8 @@ import '../../../../core/services/session_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
+import 'package:geolocator/geolocator.dart';
+import '../../../../core/services/geofence_service.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   final UserModel? user;
@@ -75,7 +77,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     );
   }
 
-  // ==========================================
+// ==========================================
   // TAB 0: BERANDA & KONFIGURASI GEOFENCING (FIGMA SCREEN)
   // ==========================================
   Widget _buildTabBerandaAdmin() {
@@ -120,7 +122,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Metrik Statistik Master Data (142 Matkul, 38 Ruang, 100% Geofence Aktif)
+          // Metrik Statistik Master Data
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -325,7 +327,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // Tombol Kuncikan GPS Saat Ini
+                // Tombol Kuncikan GPS Saat Ini (Riil & Aman Asinkron)
                 SizedBox(
                   width: double.infinity,
                   height: 38,
@@ -334,20 +336,56 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       side: const BorderSide(color: AppColors.primary),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
-                    onPressed: () {
-                      setState(() {
-                        _latController.text = '-6.188224';
-                        _lngController.text = '106.824550';
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final error = await GeofenceService.checkAndRequestPermission();
+                      if (error != null) {
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          SnackBar(backgroundColor: AppColors.badgeRed, content: Text(error)),
+                        );
+                        return;
+                      }
+
+                      messenger.showSnackBar(
                         const SnackBar(
-                          backgroundColor: AppColors.badgeGreen,
-                          content: Text('Sensor GPS terkunci: Akurasi koordinat 2.4 meter'),
+                          duration: Duration(seconds: 1),
+                          content: Text('Mengunci sinyal satelit GPS...'),
                         ),
                       );
+
+                      try {
+                        final pos = await Geolocator.getCurrentPosition(
+                          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+                        );
+
+                        if (!mounted) return;
+                        setState(() {
+                          _latController.text = pos.latitude.toStringAsFixed(6);
+                          _lngController.text = pos.longitude.toStringAsFixed(6);
+                        });
+
+                        messenger.showSnackBar(
+                          SnackBar(
+                            backgroundColor: AppColors.badgeGreen,
+                            content: Text('Lokasi terkunci! Akurasi: ±${pos.accuracy.toStringAsFixed(1)}m'),
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            backgroundColor: AppColors.badgeRed,
+                            content: Text('Gagal membaca koordinat GPS perangkat.'),
+                          ),
+                        );
+                      }
                     },
                     icon: const Icon(Icons.my_location_rounded, size: 16, color: AppColors.primary),
-                    label: const Text('Kuncikan Lokasi Saya Saat Ini', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                    label: const Text(
+                      'Kuncikan Lokasi Saya Saat Ini',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
+                    ),
                   ),
                 ),
               ],
@@ -445,7 +483,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       ),
     );
   }
-
   // ==========================================
   // TAB 1: MASTER DATA MATKUL
   // ==========================================

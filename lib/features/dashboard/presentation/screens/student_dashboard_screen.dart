@@ -3,6 +3,7 @@ import '../../../../core/services/session_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
+import '../../../../core/services/geofence_service.dart';
 
 class StudentDashboardScreen extends StatefulWidget {
   final UserModel? user;
@@ -636,10 +637,62 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
+// ==========================================
+  // MODAL BOTTOM SHEET: DUAL-GUARD SCANNER (Dengan Validasi GPS Riil)
   // ==========================================
-  // MODAL BOTTOM SHEET: DUAL-GUARD SCANNER (Figma Modal)
-  // ==========================================
-  void _showDualGuardScannerModal(BuildContext context) {
+  void _showDualGuardScannerModal(BuildContext context) async {
+    // 1. Parameter Target Geofence Lab 301 (Gedung B)
+    const double targetLat = -6.192243;
+    const double targetLng = 106.988946;
+    const double classRadius = 50.0;
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    messenger.showSnackBar(
+      const SnackBar(
+        duration: Duration(seconds: 1),
+        content: Text('Memvalidasi radius geofence kelas...'),
+      ),
+    );
+
+    // 2. Validasi posisi GPS riil mahasiswa
+    final result = await GeofenceService.validateUserLocation(
+      targetLat: targetLat,
+      targetLng: targetLng,
+      radiusInMeters: classRadius,
+    );
+
+    if (!context.mounted) return;
+
+    // 3. Jika posisi di luar radius atau menggunakan Mock/Fake GPS: Tolak!
+    if (!result.isWithinRange) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.gpp_bad_rounded, color: AppColors.badgeRed, size: 24),
+              SizedBox(width: 8),
+              Text('Presensi Ditolak', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Text(
+            result.errorMessage ?? 'Posisi Anda berada di luar area presensi kelas.',
+            style: const TextStyle(fontSize: 13, color: AppColors.textGrey),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Mengerti', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+      return; // Batalkan pembukaan modal jika tidak sah
+    }
+
+    // 4. Jika posisi VALID (di dalam radius): Buka Modal Scanner Dual-Guard
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -667,11 +720,14 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(color: const Color(0xFF065F46), borderRadius: BorderRadius.circular(12)),
-                      child: const Row(
+                      child: Row(
                         children: [
-                          Icon(Icons.gps_fixed, size: 12, color: AppColors.badgeGreen),
-                          SizedBox(width: 4),
-                          Text('GPS Terkunci: Lab 301', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.badgeGreen)),
+                          const Icon(Icons.gps_fixed, size: 12, color: AppColors.badgeGreen),
+                          const SizedBox(width: 4),
+                          Text(
+                            'GPS Terkunci: ${result.distanceInMeters.toStringAsFixed(1)}m',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.badgeGreen),
+                          ),
                         ],
                       ),
                     ),
@@ -720,7 +776,11 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text('Presensi Berhasil Dicatat!', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                      const Text('Terkonfirmasi melalui Geofence & Dynamic Token', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                      Text(
+                        'Terkonfirmasi melalui Geofence (${result.distanceInMeters.toStringAsFixed(1)}m) & Dynamic Token',
+                        style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
+                        textAlign: TextAlign.center,
+                      ),
                       const SizedBox(height: 14),
 
                       Container(
