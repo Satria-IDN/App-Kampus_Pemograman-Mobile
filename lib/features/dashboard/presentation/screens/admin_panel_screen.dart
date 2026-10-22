@@ -134,9 +134,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             ),
             child: Row(
               children: [
-                Expanded(child: _buildStatTile(count: '142', label: 'Total Matkul')),
+                Expanded(child: _buildStatTile(count: '4', label: 'Total Matkul')),
                 Container(width: 1, height: 36, color: const Color(0xFFF1F5F9)),
-                Expanded(child: _buildStatTile(count: '38', label: 'Ruang Terdaftar')),
+                Expanded(child: _buildStatTile(count: '4', label: 'Ruang Terdaftar')),
                 Container(width: 1, height: 36, color: const Color(0xFFF1F5F9)),
                 Expanded(
                   child: _buildStatTile(

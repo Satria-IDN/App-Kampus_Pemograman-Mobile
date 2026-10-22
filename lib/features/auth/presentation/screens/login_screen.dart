@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/services/session_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -58,16 +59,24 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // Berhasil Login
+      // 1. Simpan UUID, peran, dan nama ke FlutterSecureStorage via SessionService
+      await SessionService.saveSession(
+        userId: response['id'] as String, // Menyimpan UUID agar tidak bernilai NULL saat presensi
+        role: response['role'] as String? ?? _selectedRole,
+        name: (response['name'] ?? response['full_name'] ?? 'Pengguna') as String,
+      );
+
+      // 2. Tampilkan pesan selamat datang
       if (!mounted) return;
+      final displayName = response['name'] ?? response['full_name'] ?? 'Pengguna';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.badgeGreen,
-          content: Text('Selamat datang, ${response['full_name']}!'),
+          content: Text('Selamat datang, $displayName!'),
         ),
       );
 
-      // Navigasi ke halaman sesuai role
+      // 3. Navigasi ke halaman sesuai role
       if (_selectedRole == 'mahasiswa') {
         Navigator.pushReplacementNamed(context, '/dashboard-student');
       } else if (_selectedRole == 'dosen') {
@@ -278,7 +287,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: const [
                               Icon(Icons.circle, color: AppColors.badgeGreen, size: 8),
                               SizedBox(width: 6),
-                              Text('Geofence Siap Presensi', style: TextStyle(fontSize: 11, color: AppColors.textDark)),
+                              Text('Geofence Siap', style: TextStyle(fontSize: 11, color: AppColors.textDark)),
                             ],
                           ),
                           Row(

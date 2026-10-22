@@ -3,6 +3,7 @@ import '../../../../core/services/session_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
+import 'lecturer_qr_projector_screen.dart';
 
 class LecturerDashboardScreen extends StatefulWidget {
   final UserModel? user;
@@ -265,13 +266,24 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
-                    onPressed: () => _showDynamicQrLiveMonitorModal(context),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const LecturerQrProjectorScreen(
+                            sessionId: '8f9a2b1c-3d4e-5f6a-7b8c-9d0e1f2a3b4c',
+                            courseName: 'Pemrograman Mobile',
+                            roomName: 'Lab Multimedia 301',
+                          ),
+                        ),
+                      );
+                    },
                     icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 18),
                     label: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: const [
                         Text('Buka Sesi Presensi', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
-                        Text('Siap Rilis QR Code & Live Monitor', style: TextStyle(fontSize: 9, color: Color(0xFFD6E4FF))),
+                        Text('Siap Rilis QR Code (Mode Proyektor)', style: TextStyle(fontSize: 9, color: Color(0xFFD6E4FF))),
                       ],
                     ),
                   ),

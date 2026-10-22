@@ -738,77 +738,97 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                   borderRadius: BorderRadius.circular(24),
                   child: MobileScanner(
                     onDetect: (capture) async {
-                      if (isProcessingScan) return; // Mencegah scan berulang
+                      // 1. KUNCI LANGSUNG di baris pertama sebelum ada pembacaan frame lain
+                      if (isProcessingScan) return;
 
                       final barcodes = capture.barcodes;
-                      if (barcodes.isNotEmpty) {
-                        final code = barcodes.first.rawValue;
-                        if (code != null) {
-                          isProcessingScan = true;
-                          final isValidToken = QrTokenService.validateToken(code);
+                      if (barcodes.isEmpty) return;
 
-                          if (isValidToken) {
-                            Navigator.pop(ctx); // Tutup modal kamera
+                      final code = barcodes.first.rawValue;
+                      if (code == null) return;
 
-                            messenger.showSnackBar(
-                              const SnackBar(
-                                duration: Duration(seconds: 1),
-                                content: Text('Menyimpan presensi ke database...'),
-                              ),
-                            );
+                      // Kunci proses pemindaian seketika
+                      isProcessingScan = true;
 
-                            try {
-                              // 1. Ekstrak data session_id dari QR token JSON
-                              final payload = jsonDecode(code);
-                              final sessionId = payload['session_id'] as String;
+                      final isValidToken = QrTokenService.validateToken(code);
 
-                              // 2. Eksekusi Stored Procedure RPC Supabase
-                              final response = await AttendanceService.submitAttendance(
-                                sessionId: sessionId,
-                                distance: result.distanceInMeters,
-                                isMocked: result.isMocked,
-                              );
+                      if (isValidToken) {
+                        // Tutup modal kamera langsung agar kamera berhenti membaca
+                        Navigator.pop(ctx);
 
-                              if (!context.mounted) return;
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            duration: Duration(seconds: 1),
+                            content: Text('Menyimpan presensi ke database...'),
+                          ),
+                        );
 
-                              // 3. Tampilkan status respon dari server
-                              if (response['success'] == true) {
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    backgroundColor: AppColors.badgeGreen,
-                                    content: Text(response['message'] ?? 'Presensi Sah! Terverifikasi GPS & Dynamic QR.'),
-                                  ),
-                                );
-                              } else {
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    backgroundColor: AppColors.badgeRed,
-                                    content: Text(response['message'] ?? 'Presensi ditolak oleh server.'),
-                                  ),
-                                );
-                              }
-                            } catch (e) {
-                              if (!context.mounted) return;
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  backgroundColor: AppColors.badgeRed,
-                                  content: Text('Format QR tidak sesuai: $e'),
-                                ),
-                              );
-                            }
-                          } else {
+                        try {
+                          // 2. Ekstrak data session_id dari QR token JSON
+                          final payload = jsonDecode(code);
+                          final sessionId = payload['session_id'] as String;
+
+                          // 3. Ambil UUID mahasiswa dari FlutterSecureStorage (SessionService)
+                          final session = await SessionService.getSession();
+                          final currentUserId = session['userId'];
+
+                          if (currentUserId == null) {
+                            if (!context.mounted) return;
                             messenger.showSnackBar(
                               const SnackBar(
                                 backgroundColor: AppColors.badgeRed,
-                                content: Text('QR Kadaluarsa atau Tidak Valid! Coba lagi.'),
+                                content: Text('Sesi login tidak ditemukan. Silakan login ulang.'),
                               ),
                             );
-                            // Beri jeda 2 detik sebelum mengizinkan pemindaian ulang jika gagal
-                            Future.delayed(const Duration(seconds: 2), () {
-                              isProcessingScan = false;
-                            });
+                            return;
                           }
+
+                          // 4. Eksekusi Stored Procedure RPC Supabase lengkap dengan studentId
+                          final response = await AttendanceService.submitAttendance(
+                            sessionId: sessionId,
+                            studentId: currentUserId,
+                            distance: result.distanceInMeters,
+                            isMocked: result.isMocked,
+                          );
+
+                          if (!context.mounted) return;
+
+                          // 5. Tampilkan status respon dari server
+                          if (response['success'] == true) {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                backgroundColor: AppColors.badgeGreen,
+                                content: Text(response['message'] ?? 'Presensi Sah! Terverifikasi GPS & Dynamic QR.'),
+                              ),
+                            );
+                          } else {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                backgroundColor: AppColors.badgeRed,
+                                content: Text(response['message'] ?? 'Presensi ditolak oleh server.'),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (!context.mounted) return;
+                          messenger.showSnackBar(
+                            SnackBar(
+                              backgroundColor: AppColors.badgeRed,
+                              content: Text('Format QR tidak sesuai: $e'),
+                            ),
+                          );
                         }
+                      } else {
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            backgroundColor: AppColors.badgeRed,
+                            content: Text('QR Kadaluarsa atau Tidak Valid! Coba lagi.'),
+                          ),
+                        );
+                        // Beri jeda 2 detik sebelum mengizinkan pemindaian ulang jika gagal
+                        Future.delayed(const Duration(seconds: 2), () {
+                          isProcessingScan = false;
+                        });
                       }
                     },
                   ),
