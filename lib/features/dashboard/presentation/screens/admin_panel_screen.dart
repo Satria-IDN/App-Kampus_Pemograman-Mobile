@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../../../core/services/session_service.dart';
+import '../../../../core/services/geofence_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
-import 'package:geolocator/geolocator.dart';
-import '../../../../core/services/geofence_service.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   final UserModel? user;
@@ -15,14 +16,26 @@ class AdminPanelScreen extends StatefulWidget {
 }
 
 class _AdminPanelScreenState extends State<AdminPanelScreen> {
+  final _supabase = Supabase.instance.client;
+
   int _currentNavIndex = 0; // 0: Beranda/GPS, 1: Matkul, 2: Log Audit, 3: Profil
-  String _selectedMasterTab = 'Titik GPS'; // Titik GPS, Matkul, Kelola Akun
-  int _selectedRadius = 50; // 15, 50, 150
+  String _selectedMasterTab = 'Titik GPS';
+  int _selectedRadius = 50;
   String _activeRoomName = 'Lab Komputer 301';
   String _activeRoomDetail = 'Gedung B, Lantai 3 • Kampus Utama';
 
   final TextEditingController _latController = TextEditingController(text: '-6.188224');
   final TextEditingController _lngController = TextEditingController(text: '106.824550');
+
+  // State Data Pengguna dari Supabase
+  List<Map<String, dynamic>> _userProfiles = [];
+  bool _isLoadingProfiles = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserProfiles();
+  }
 
   @override
   void dispose() {
@@ -31,11 +44,32 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     super.dispose();
   }
 
+  // Mengambil daftar profil dari Supabase
+  Future<void> _fetchUserProfiles() async {
+    setState(() => _isLoadingProfiles = true);
+    try {
+      final response = await _supabase
+          .from('profiles')
+          .select()
+          .order('created_at', ascending: false);
+
+      if (mounted) {
+        setState(() {
+          _userProfiles = List<Map<String, dynamic>>.from(response);
+          _isLoadingProfiles = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingProfiles = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      // FAB Tengah Aktif: Membuka Modal Tambah Ruang / Titik GPS Baru
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       floatingActionButton: FloatingActionButton(
         elevation: 4,
@@ -56,7 +90,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             children: [
               _buildNavItem(icon: Icons.home_filled, label: 'Beranda', index: 0),
               _buildNavItem(icon: Icons.auto_stories_rounded, label: 'Matkul', index: 1),
-              const SizedBox(width: 48), // Ruang lekukan FAB
+              const SizedBox(width: 48),
               _buildNavItem(icon: Icons.history_rounded, label: 'Log Audit', index: 2),
               _buildNavItem(icon: Icons.person_outline_rounded, label: 'Profil', index: 3),
             ],
@@ -77,10 +111,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     );
   }
 
-// ==========================================
-  // TAB 0: BERANDA & KONFIGURASI GEOFENCING (FIGMA SCREEN)
+  // ==========================================
+  // TAB 0: BERANDA & KONFIGURASI GEOFENCING
   // ==========================================
   Widget _buildTabBerandaAdmin() {
+    final mhsCount = _userProfiles.where((u) => u['role'] == 'mahasiswa').length;
+    final dosenCount = _userProfiles.where((u) => u['role'] == 'dosen').length;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
@@ -89,7 +126,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           _buildAppHeader(),
           const SizedBox(height: 14),
 
-          // Judul Header Panel
+          // Header Panel
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -134,9 +171,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             ),
             child: Row(
               children: [
-                Expanded(child: _buildStatTile(count: '4', label: 'Total Matkul')),
+                Expanded(child: _buildStatTile(count: '$mhsCount', label: 'Mahasiswa')),
                 Container(width: 1, height: 36, color: const Color(0xFFF1F5F9)),
-                Expanded(child: _buildStatTile(count: '4', label: 'Ruang Terdaftar')),
+                Expanded(child: _buildStatTile(count: '$dosenCount', label: 'Dosen')),
                 Container(width: 1, height: 36, color: const Color(0xFFF1F5F9)),
                 Expanded(
                   child: _buildStatTile(
@@ -150,7 +187,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ),
           const SizedBox(height: 14),
 
-          // Tab Pilihan Submenu Master
+          // Submenu Master Tabs
           Container(
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
@@ -159,15 +196,25 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             ),
             child: Row(
               children: [
-                _buildMasterTab('Titik GPS', Icons.my_location_rounded, () {}),
-                _buildMasterTab('Matkul', Icons.auto_stories_rounded, () => setState(() => _currentNavIndex = 1)),
-                _buildMasterTab('Kelola Akun', Icons.people_alt_rounded, () => _showKelolaAkunDialog()),
+                _buildMasterTab('Titik GPS', Icons.my_location_rounded, () {
+                  setState(() => _selectedMasterTab = 'Titik GPS');
+                }),
+                _buildMasterTab('Matkul', Icons.auto_stories_rounded, () {
+                  setState(() {
+                    _selectedMasterTab = 'Matkul';
+                    _currentNavIndex = 1;
+                  });
+                }),
+                _buildMasterTab('Kelola Akun', Icons.people_alt_rounded, () {
+                  setState(() => _selectedMasterTab = 'Kelola Akun');
+                  _showKelolaAkunSheet();
+                }),
               ],
             ),
           ),
           const SizedBox(height: 16),
 
-          // Kartu Konfigurasi Geofencing Interaktif
+          // Kartu Konfigurasi Geofencing
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
@@ -194,7 +241,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // Pemilih Ruangan Dropdown
                 InkWell(
                   onTap: () => _showRoomSelectorSheet(),
                   borderRadius: BorderRadius.circular(8),
@@ -259,7 +305,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // Pilihan Radius Cepat
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -279,7 +324,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // Kolom Koordinat
+                // Input Latitude & Longitude
                 Row(
                   children: [
                     Expanded(
@@ -327,7 +372,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // Tombol Kuncikan GPS Saat Ini (Riil & Aman Asinkron)
+                // Tombol Kunci GPS Saat Ini
                 SizedBox(
                   width: double.infinity,
                   height: 38,
@@ -341,17 +386,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       final error = await GeofenceService.checkAndRequestPermission();
                       if (error != null) {
                         if (!mounted) return;
-                        messenger.showSnackBar(
-                          SnackBar(backgroundColor: AppColors.badgeRed, content: Text(error)),
-                        );
+                        messenger.showSnackBar(SnackBar(backgroundColor: AppColors.badgeRed, content: Text(error)));
                         return;
                       }
 
                       messenger.showSnackBar(
-                        const SnackBar(
-                          duration: Duration(seconds: 1),
-                          content: Text('Mengunci sinyal satelit GPS...'),
-                        ),
+                        const SnackBar(duration: Duration(seconds: 1), content: Text('Mengunci sinyal satelit GPS...')),
                       );
 
                       try {
@@ -374,10 +414,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       } catch (e) {
                         if (!mounted) return;
                         messenger.showSnackBar(
-                          const SnackBar(
-                            backgroundColor: AppColors.badgeRed,
-                            content: Text('Gagal membaca koordinat GPS perangkat.'),
-                          ),
+                          const SnackBar(backgroundColor: AppColors.badgeRed, content: Text('Gagal membaca koordinat GPS perangkat.')),
                         );
                       }
                     },
@@ -393,11 +430,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ),
           const SizedBox(height: 18),
 
-          // Daftar Titik Ruangan (38)
+          // Daftar Titik Ruangan
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Daftar Titik Ruangan (38)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+              const Text('Daftar Titik Ruangan (3)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
               TextButton(
                 onPressed: () => _showRoomSelectorSheet(),
                 child: const Text('Kelola Semua', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600)),
@@ -452,7 +489,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ),
           const SizedBox(height: 18),
 
-          // Tombol Simpan & Sinkronisasi SIAKAD
+          // Tombol Simpan & Sinkronisasi
           SizedBox(
             width: double.infinity,
             height: 48,
@@ -474,15 +511,606 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               label: const Text('Simpan & Sinkronisasi SIAKAD', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
             ),
           ),
-          const SizedBox(height: 4),
-          const Center(
-            child: Text('Perubahan langsung diterapkan ke semua presensi mahasiswa', style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
-          ),
           const SizedBox(height: 20),
         ],
       ),
     );
   }
+
+  // ==========================================
+  // MODAL KELOLA AKUN TERPADU & AMAN (ROLE FILTER)
+  // ==========================================
+  void _showKelolaAkunSheet() {
+    String selectedFilter = 'semua'; // 'semua', 'mahasiswa', 'dosen', 'admin'
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final filteredUsers = _userProfiles.where((u) {
+              if (selectedFilter == 'semua') return true;
+              return (u['role']?.toString().toLowerCase()) == selectedFilter;
+            }).toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.88,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFCBD5E1),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Header Modal & Tombol Tambah
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'Kelola Akun Kampus',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Manajemen hak akses & kredensial civitas akademika',
+                            style: TextStyle(fontSize: 12, color: AppColors.textGrey),
+                          ),
+                        ],
+                      ),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () => _showAddUserDialog(onAdded: () {
+                          _fetchUserProfiles();
+                          setSheetState(() {});
+                        }),
+                        icon: const Icon(Icons.person_add_rounded, size: 16, color: Colors.white),
+                        label: const Text('Tambah Akun', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Tab Filter Segmented
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildFilterPill('Semua', 'semua', selectedFilter, () => setSheetState(() => selectedFilter = 'semua')),
+                        const SizedBox(width: 8),
+                        _buildFilterPill('Mahasiswa', 'mahasiswa', selectedFilter, () => setSheetState(() => selectedFilter = 'mahasiswa')),
+                        const SizedBox(width: 8),
+                        _buildFilterPill('Dosen', 'dosen', selectedFilter, () => setSheetState(() => selectedFilter = 'dosen')),
+                        const SizedBox(width: 8),
+                        _buildFilterPill('Admin', 'admin', selectedFilter, () => setSheetState(() => selectedFilter = 'admin')),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Daftar Kartu Pengguna
+                  Expanded(
+                    child: _isLoadingProfiles
+                        ? const Center(child: CircularProgressIndicator())
+                        : filteredUsers.isEmpty
+                        ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          Icon(Icons.person_search_rounded, size: 44, color: AppColors.textGrey),
+                          SizedBox(height: 8),
+                          Text('Tidak ada pengguna pada kategori ini', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                        ],
+                      ),
+                    )
+                        : ListView.separated(
+                      itemCount: filteredUsers.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, idx) {
+                        final user = filteredUsers[idx];
+                        final role = (user['role'] ?? '-').toString().toLowerCase();
+                        final isMhs = role == 'mahasiswa';
+                        final isDosen = role == 'dosen';
+
+                        final accentColor = isMhs
+                            ? AppColors.primary
+                            : (isDosen ? const Color(0xFF16A34A) : const Color(0xFF7C3AED));
+                        final bgColor = isMhs
+                            ? const Color(0xFFEEF2FF)
+                            : (isDosen ? const Color(0xFFDCFCE7) : const Color(0xFFEDE9FE));
+                        final roleIcon = isMhs
+                            ? Icons.school_rounded
+                            : (isDosen ? Icons.co_present_rounded : Icons.admin_panel_settings_rounded);
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.02),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              // 1. Avatar Kiri
+                              CircleAvatar(
+                                radius: 20,
+                                backgroundColor: bgColor,
+                                child: Icon(roleIcon, color: accentColor, size: 20),
+                              ),
+                              const SizedBox(width: 12),
+
+                              // 2. Info Tengah (Tanpa Password Plain)
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      user['name'] ?? '-',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textDark),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    if (isMhs)
+                                      Text(
+                                        'NIM: ${user['identifier_id']} • IPK: ${user['ipk'] ?? '0.00'} • SKS: ${user['sks_total'] ?? 0}',
+                                        style: const TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w500),
+                                      )
+                                    else if (isDosen)
+                                      Text(
+                                        'NIDN: ${user['identifier_id']} • Dosen Fakultas Ilmu Komputer',
+                                        style: const TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w500),
+                                      )
+                                    else
+                                      Text(
+                                        'ID: ${user['identifier_id']} • Hak Akses Administrator',
+                                        style: const TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w500),
+                                      ),
+                                  ],
+                                ),
+                              ),
+
+                              // 3. Badge Role
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: bgColor,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  role.toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: accentColor,
+                                  ),
+                                ),
+                              ),
+
+                              // 4. Menu Aksi Titik Tiga
+                              PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert_rounded, size: 18, color: AppColors.textGrey),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                onSelected: (val) {
+                                  if (val == 'reset') {
+                                    _showResetPasswordDialog(user);
+                                  } else if (val == 'delete') {
+                                    _showDeleteUserDialog(user, onDeleted: () {
+                                      _fetchUserProfiles();
+                                      setSheetState(() {});
+                                    });
+                                  }
+                                },
+                                itemBuilder: (context) => [
+                                  const PopupMenuItem(
+                                    value: 'reset',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.lock_reset_rounded, size: 18, color: AppColors.primary),
+                                        SizedBox(width: 8),
+                                        Text('Reset Kata Sandi', style: TextStyle(fontSize: 12)),
+                                      ],
+                                    ),
+                                  ),
+                                  const PopupMenuItem(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.badgeRed),
+                                        SizedBox(width: 8),
+                                        Text('Hapus Akun', style: TextStyle(fontSize: 12, color: AppColors.badgeRed)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Widget Tombol Filter Pill
+  Widget _buildFilterPill(String label, String value, String currentSelected, VoidCallback onTap) {
+    final isSelected = value == currentSelected;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? AppColors.primary : const Color(0xFFE2E8F0)),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+            color: isSelected ? Colors.white : AppColors.textGrey,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // DIALOG RESET KATA SANDI (AMAN & HASH OTOMATIS)
+  // ==========================================
+  void _showResetPasswordDialog(Map<String, dynamic> user) {
+    final newPassCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Reset Kata Sandi', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Setel kata sandi baru untuk ${user['name']} (${user['identifier_id']}):',
+                    style: const TextStyle(fontSize: 12, color: AppColors.textGrey),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: newPassCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'Kata Sandi Baru',
+                      hintText: 'Masukkan sandi sementara',
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () {
+                      final randomPass = 'CP${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+                      newPassCtrl.text = randomPass;
+                    },
+                    icon: const Icon(Icons.shuffle_rounded, size: 14),
+                    label: const Text('Generate Sandi Acak', style: TextStyle(fontSize: 11)),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Batal')),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                    if (newPassCtrl.text.trim().isEmpty) return;
+                    setDialogState(() => isSubmitting = true);
+                    try {
+                      // Update langsung di Supabase, Trigger PostgreSQL otomatis menghash password
+                      await _supabase
+                          .from('profiles')
+                          .update({'password': newPassCtrl.text.trim()})
+                          .eq('id', user['id']);
+
+                      if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            backgroundColor: AppColors.badgeGreen,
+                            content: Text('Kata sandi untuk ${user['name']} berhasil diperbarui!'),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      setDialogState(() => isSubmitting = false);
+                      if (dialogCtx.mounted) {
+                        ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                          SnackBar(backgroundColor: AppColors.badgeRed, content: Text('Gagal reset sandi: $e')),
+                        );
+                      }
+                    }
+                  },
+                  child: const Text('Simpan Sandi', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ==========================================
+  // DIALOG HAPUS AKUN PENGGUNA
+  // ==========================================
+  void _showDeleteUserDialog(Map<String, dynamic> user, {required VoidCallback onDeleted}) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Hapus Akun Pengguna', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Apakah Anda yakin ingin menghapus akun ${user['name']} (${user['identifier_id']})? Tindakan ini bersifat permanen.',
+          style: const TextStyle(fontSize: 12, color: AppColors.textGrey),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.badgeRed),
+            onPressed: () async {
+              try {
+                await _supabase.from('profiles').delete().eq('id', user['id']);
+                if (ctx.mounted) Navigator.pop(ctx);
+                onDeleted();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(backgroundColor: AppColors.badgeGreen, content: Text('Akun berhasil dihapus.')),
+                  );
+                }
+              } catch (e) {
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(backgroundColor: AppColors.badgeRed, content: Text('Gagal menghapus: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Hapus Akun', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // DIALOG TAMBAH PENGGUNA BARU KE SUPABASE
+  // ==========================================
+  void _showAddUserDialog({required VoidCallback onAdded}) {
+    final formKey = GlobalKey<FormState>();
+    final identifierCtrl = TextEditingController();
+    final nameCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+    final ipkCtrl = TextEditingController(text: '3.50');
+    final sksCtrl = TextEditingController(text: '0');
+
+    String selectedRole = 'mahasiswa';
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              title: const Text('Tambah Pengguna Baru', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              content: SizedBox(
+                width: 380,
+                child: SingleChildScrollView(
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedRole,
+                          decoration: InputDecoration(
+                            labelText: 'Peran Akun',
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'mahasiswa', child: Text('Mahasiswa')),
+                            DropdownMenuItem(value: 'dosen', child: Text('Dosen')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() => selectedRole = val);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: identifierCtrl,
+                          decoration: InputDecoration(
+                            labelText: selectedRole == 'mahasiswa' ? 'NIM Mahasiswa' : 'NIDN/NIP Dosen',
+                            hintText: selectedRole == 'mahasiswa' ? 'Contoh: 20240801048' : 'Contoh: 8041',
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: nameCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Nama Lengkap Beserta Gelar',
+                            hintText: 'Contoh: Dr. Budi Santoso, M.Kom.',
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: passwordCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Kata Sandi Login',
+                            hintText: 'Masukkan kata sandi awal',
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null,
+                        ),
+                        if (selectedRole == 'mahasiswa') ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextFormField(
+                                  controller: ipkCtrl,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: InputDecoration(
+                                    labelText: 'IPK Awal',
+                                    filled: true,
+                                    fillColor: const Color(0xFFF8FAFC),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: sksCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: 'Total SKS',
+                                    filled: true,
+                                    fillColor: const Color(0xFFF8FAFC),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(dialogCtx),
+                  child: const Text('Batal', style: TextStyle(color: AppColors.textGrey)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                    if (!formKey.currentState!.validate()) return;
+                    setDialogState(() => isSubmitting = true);
+
+                    try {
+                      final insertPayload = <String, dynamic>{
+                        'identifier_id': identifierCtrl.text.trim(),
+                        'name': nameCtrl.text.trim(),
+                        'password': passwordCtrl.text.trim(), // Otomatis di-hash oleh Trigger Supabase
+                        'role': selectedRole,
+                      };
+
+                      if (selectedRole == 'mahasiswa') {
+                        insertPayload['ipk'] = double.tryParse(ipkCtrl.text.trim()) ?? 0.0;
+                        insertPayload['sks_total'] = int.tryParse(sksCtrl.text.trim()) ?? 0;
+                      }
+
+                      // Simpan langsung ke tabel public.profiles di Supabase
+                      await _supabase.from('profiles').insert(insertPayload);
+
+                      if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+                      onAdded();
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            backgroundColor: AppColors.badgeGreen,
+                            content: Text('Akun baru berhasil ditambahkan dan diamankan!'),
+                          ),
+                        );
+                      }
+                    } catch (err) {
+                      setDialogState(() => isSubmitting = false);
+                      if (dialogCtx.mounted) {
+                        ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                          SnackBar(backgroundColor: AppColors.badgeRed, content: Text('Gagal: $err')),
+                        );
+                      }
+                    }
+                  },
+                  child: isSubmitting
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Simpan Akun', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   // ==========================================
   // TAB 1: MASTER DATA MATKUL
   // ==========================================
@@ -533,13 +1161,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           const Text('Catatan perubahan geofence, presensi darurat, dan sesi', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
           const SizedBox(height: 16),
 
-          _buildAuditTile('Sinkronisasi Geofence', 'Radius Lab 301 diperbarui ke 50m oleh Super Admin', '16 Okt 2026 • 00:15 WIB', AppColors.badgeGreen),
+          _buildAuditTile('Sinkronisasi Geofence', 'Radius Lab 301 diperbarui ke 50m oleh Super Admin', '26 Okt 2026 • 10:15 WIB', AppColors.badgeGreen),
           const SizedBox(height: 10),
-          _buildAuditTile('Presensi Dosen Dibuka', 'Sesi Pemrograman Mobile (IF-4A) dimulai di Lab 301', '15 Okt 2026 • 08:00 WIB', AppColors.primary),
+          _buildAuditTile('Presensi Dosen Dibuka', 'Sesi Pemrograman Mobile dimulai di Lab 301', '26 Okt 2026 • 08:00 WIB', AppColors.primary),
           const SizedBox(height: 10),
-          _buildAuditTile('Anomali Geofence Terdeteksi', 'Percobaan presensi di luar radius (NIM 20240801048)', '15 Okt 2026 • 08:04 WIB', AppColors.badgeRed),
+          _buildAuditTile('Anomali Geofence Terdeteksi', 'Percobaan presensi di luar radius (NIM 20240801048)', '26 Okt 2026 • 08:04 WIB', AppColors.badgeRed),
           const SizedBox(height: 10),
-          _buildAuditTile('Kalibrasi Koordinat', 'GPS Gedung B diperbarui (+0.000012 lat)', '14 Okt 2026 • 16:20 WIB', AppColors.badgeOrange),
+          _buildAuditTile('Kalibrasi Koordinat', 'GPS Gedung B diperbarui (+0.000012 lat)', '25 Okt 2026 • 16:20 WIB', AppColors.badgeOrange),
           const SizedBox(height: 20),
         ],
       ),
@@ -572,7 +1200,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     children: const [
                       Text('Super Administrator', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
                       SizedBox(height: 2),
-                      Text('ID: ADM-2024 • Hak Akses Penuh', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                      Text('ID: ADM001 • Hak Akses Penuh', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
                       SizedBox(height: 2),
                       Text('Pusat Teknologi Informasi Kampus', style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600)),
                     ],
@@ -593,7 +1221,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 ListTile(
                   leading: const Icon(Icons.cloud_done_rounded, color: AppColors.badgeGreen),
                   title: const Text('Status Supabase & SIAKAD', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  subtitle: const Text('Tersambung (Latensi 28ms)', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                  subtitle: const Text('Tersambung (Latensi 24ms)', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
                   trailing: const Icon(Icons.check_circle_rounded, color: AppColors.badgeGreen, size: 18),
                 ),
                 const Divider(height: 1, color: Color(0xFFF1F5F9)),
@@ -711,7 +1339,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     );
   }
 
-  // Modal Pemilih Ruangan Aktif
   void _showRoomSelectorSheet() {
     showModalBottomSheet(
       context: context,
@@ -773,20 +1400,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     );
   }
 
-  void _showKelolaAkunDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Kelola Akun Kampus', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-        content: const Text('Manajemen hak akses 3-Role (Mahasiswa, Dosen, Administrator) terhubung ke Supabase.', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup')),
-        ],
-      ),
-    );
-  }
-
   // ==========================================
   // HELPER WIDGETS
   // ==========================================
@@ -839,10 +1452,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     final isSelected = _selectedMasterTab == title;
     return Expanded(
       child: GestureDetector(
-        onTap: () {
-          setState(() => _selectedMasterTab = title);
-          onTap();
-        },
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
@@ -1006,7 +1616,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         children: [
           Icon(icon, size: 22, color: isSelected ? AppColors.primary : AppColors.textGrey),
           const SizedBox(height: 3),
-          Text(label, style: TextStyle(fontSize: 10, fontWeight: isSelected ? FontWeight.bold : FontWeight.w500, color: isSelected ? AppColors.primary : AppColors.textGrey)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              color: isSelected ? AppColors.primary : AppColors.textGrey,
+            ),
+          ),
         ],
       ),
     );

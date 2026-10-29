@@ -632,9 +632,9 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   // MODAL BOTTOM SHEET: DUAL-GUARD SCANNER (Dengan Kamera Riil & Anti-Spam)
   // ==========================================
   void _showDualGuardScannerModal(BuildContext context) async {
-    // 1. Parameter Target Geofence
-    const double targetLat = -6.192243;
-    const double targetLng = 106.988946;
+    // 1. Parameter Target Geofence/koordinat
+    const double targetLat = -6.190432;
+    const double targetLng = 106.764512;
     const double classRadius = 50.0;
 
     final messenger = ScaffoldMessenger.of(context);
