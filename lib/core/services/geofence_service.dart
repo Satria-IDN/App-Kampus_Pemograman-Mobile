@@ -39,6 +39,31 @@ class GeofenceService {
     return null; // Izin aman
   }
 
+  static Future<Position> getCurrentPosition() async {
+    final permissionError = await checkAndRequestPermission();
+    if (permissionError != null) {
+      throw permissionError;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+
+      if (position.isMocked) {
+        throw 'Terdeteksi aplikasi lokasi palsu (Mock GPS)! Harap matikan Fake GPS.';
+      }
+
+      return position;
+    } catch (e) {
+      if (e is String) rethrow;
+      throw 'Gagal mengunci sinyal GPS. Pastikan berada di area dengan sinyal GPS baik.';
+    }
+  }
+
   /// Memvalidasi posisi pengguna terhadap titik koordinat target ruangan
   static Future<GeofenceResult> validateUserLocation({
     required double targetLat,

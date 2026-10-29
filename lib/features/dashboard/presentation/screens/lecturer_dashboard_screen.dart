@@ -3,6 +3,7 @@ import '../../../../core/services/session_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
+import '../../../../core/services/class_session_service.dart';
 import 'lecturer_qr_projector_screen.dart';
 
 class LecturerDashboardScreen extends StatefulWidget {
@@ -16,7 +17,55 @@ class LecturerDashboardScreen extends StatefulWidget {
 class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
   int _currentNavIndex = 0; // 0: Beranda, 1: Jadwal, 2: Riwayat, 3: Profil
   String _selectedCategory = 'Reguler'; // Reguler, Workshop, Tamu
-  bool _isCryptoEnabled = true;
+
+// Fungsi membuat atau mengambil sesi kelas riil via ClassSessionService
+  Future<void> _startOrOpenClassSession({
+    required String courseCode,
+    required String courseName,
+    required String roomName,
+    int radius = 50,
+  }) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final currentUserId = widget.user?.id;
+
+      // Delegasikan urusan GPS dosen dan Supabase ke ClassSessionService
+      final session = await ClassSessionService.getOrCreateActiveSession(
+        lecturerId: currentUserId,
+        courseCode: courseCode,
+        courseName: courseName,
+        roomName: roomName,
+        sessionType: _selectedCategory,
+        radius: radius,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context); // Tutup dialog loading
+
+      // Masuk ke mode proyektor dengan data sesi riil
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => LecturerQrProjectorScreen(
+            sessionId: session['id'].toString(),
+            courseName: courseName,
+            roomName: roomName,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(backgroundColor: AppColors.badgeRed, content: Text('$e')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,13 +74,17 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      // FAB Tengah Aktif: Membuka Modal Dynamic QR & Live Monitor
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       floatingActionButton: FloatingActionButton(
         elevation: 4,
         backgroundColor: AppColors.primary,
         shape: const CircleBorder(),
-        onPressed: () => _showDynamicQrLiveMonitorModal(context),
+        onPressed: () => _startOrOpenClassSession(
+          courseCode: 'IF3201',
+          courseName: 'Pemrograman Mobile',
+          roomName: 'Lab Komputer 301',
+          radius: 50,
+        ),
         child: const Icon(Icons.qr_code_2_rounded, color: Colors.white, size: 28),
       ),
       bottomNavigationBar: BottomAppBar(
@@ -46,7 +99,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
             children: [
               _buildNavItem(icon: Icons.home_filled, label: 'Beranda', index: 0),
               _buildNavItem(icon: Icons.calendar_month_outlined, label: 'Jadwal', index: 1),
-              const SizedBox(width: 48), // Ruang lekukan FAB
+              const SizedBox(width: 48), // Lekukan FAB
               _buildNavItem(icon: Icons.history_rounded, label: 'Riwayat', index: 2),
               _buildNavItem(icon: Icons.person_outline_rounded, label: 'Profil', index: 3),
             ],
@@ -195,25 +248,35 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // Kategori Sesi
+                // Dynamic QR
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Kategori Sesi:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textGrey)),
-                    Row(
-                      children: [
-                        const Icon(Icons.shield_outlined, size: 13, color: AppColors.primary),
-                        const SizedBox(width: 4),
-                        const Text('Presensi Kriptografi', style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600)),
-                        Transform.scale(
-                          scale: 0.65,
-                          child: Switch(
-                            value: _isCryptoEnabled,
-                            activeThumbColor: AppColors.primary,
-                            onChanged: (val) => setState(() => _isCryptoEnabled = val),
+                    const Text(
+                      'Kategori Sesi:',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textGrey),
+                    ),
+                    // Badge penanda bahwa perlindungan Dynamic QR aktif secara default
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF2FF),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.sync_rounded, size: 12, color: AppColors.primary),
+                          SizedBox(width: 4),
+                          Text(
+                            'Dynamic QR Aktif (20s)',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -256,7 +319,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Tombol Buka Sesi (Memicu Dynamic QR Live Monitor)
+                // Tombol Buka Sesi (Membuka Mode Proyektor Sesi Riil)
                 SizedBox(
                   width: double.infinity,
                   height: 48,
@@ -266,18 +329,12 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const LecturerQrProjectorScreen(
-                            sessionId: '8f9a2b1c-3d4e-5f6a-7b8c-9d0e1f2a3b4c',
-                            courseName: 'Pemrograman Mobile',
-                            roomName: 'Lab Multimedia 301',
-                          ),
-                        ),
-                      );
-                    },
+                    onPressed: () => _startOrOpenClassSession(
+                      courseCode: 'IF3201',
+                      courseName: 'Pemrograman Mobile',
+                      roomName: 'Lab Komputer 301',
+                      radius: 50,
+                    ),
                     icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 18),
                     label: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -330,7 +387,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
           ),
           const SizedBox(height: 14),
 
-          // Kartu Verifikasi Dispensasi (Bisa Ditekan)
+          // Kartu Verifikasi Dispensasi
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -388,13 +445,59 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
           const Text('Semester Genap 2024/2025 • Total 12 SKS Pengampu', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
           const SizedBox(height: 16),
 
-          _buildLecturerClassCard('Pemrograman Mobile', 'Kelas IF-4A • 3 SKS', 'Kamis, 08:00 - 09:40 WIB', 'Lab Komputer 301', 'Sedang Aktif', AppColors.badgeGreen, true),
+          _buildLecturerClassCard(
+            title: 'Pemrograman Mobile',
+            subtitle: 'Kelas IF-4A • 3 SKS',
+            time: 'Kamis, 08:00 - 09:40 WIB',
+            room: 'Lab Komputer 301',
+            badgeText: 'Sedang Aktif',
+            badgeColor: AppColors.badgeGreen,
+            canOpenSession: true,
+            onOpen: () => _startOrOpenClassSession(
+              courseCode: 'IF3201',
+              courseName: 'Pemrograman Mobile',
+              roomName: 'Lab Komputer 301',
+              radius: 50,
+            ),
+          ),
           const SizedBox(height: 12),
-          _buildLecturerClassCard('Kecerdasan Buatan & ML', 'Kelas IF-5B • 3 SKS', 'Kamis, 13:00 - 15:30 WIB', 'Auditorium Rektorat', 'Sesi Hari Ini', AppColors.primary, true),
+          _buildLecturerClassCard(
+            title: 'Kecerdasan Buatan & ML',
+            subtitle: 'Kelas IF-5B • 3 SKS',
+            time: 'Kamis, 13:00 - 15:30 WIB',
+            room: 'Auditorium Rektorat',
+            badgeText: 'Sesi Hari Ini',
+            badgeColor: AppColors.primary,
+            canOpenSession: true,
+            onOpen: () => _startOrOpenClassSession(
+              courseCode: 'IF3105',
+              courseName: 'Kecerdasan Buatan & ML',
+              roomName: 'Auditorium Rektorat',
+              radius: 150,
+            ),
+          ),
           const SizedBox(height: 12),
-          _buildLecturerClassCard('Algoritma & Struktur Data', 'Kelas IF-2B • 3 SKS', 'Senin, 10:00 - 11:40 WIB', 'Ruang Teori 104', 'Selesai Dilaksanakan', AppColors.textGrey, false),
+          _buildLecturerClassCard(
+            title: 'Algoritma & Struktur Data',
+            subtitle: 'Kelas IF-2B • 3 SKS',
+            time: 'Senin, 10:00 - 11:40 WIB',
+            room: 'Ruang Teori 104',
+            badgeText: 'Selesai Dilaksanakan',
+            badgeColor: AppColors.textGrey,
+            canOpenSession: false,
+            onOpen: () {},
+          ),
           const SizedBox(height: 12),
-          _buildLecturerClassCard('Rekayasa Perangkat Lunak', 'Kelas IF-3A • 3 SKS', 'Jumat, 13:00 - 14:40 WIB', 'Ruang Teori 204', 'Jadwal Besok', AppColors.badgeOrange, false),
+          _buildLecturerClassCard(
+            title: 'Rekayasa Perangkat Lunak',
+            subtitle: 'Kelas IF-3A • 3 SKS',
+            time: 'Jumat, 13:00 - 14:40 WIB',
+            room: 'Ruang Teori 204',
+            badgeText: 'Jadwal Besok',
+            badgeColor: AppColors.badgeOrange,
+            canOpenSession: false,
+            onOpen: () {},
+          ),
           const SizedBox(height: 20),
         ],
       ),
@@ -523,231 +626,6 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
           const SizedBox(height: 20),
         ],
       ),
-    );
-  }
-
-  // ==========================================================
-  // MODAL BOTTOM SHEET: DYNAMIC QR & LIVE MONITOR (FIGMA SCREEN)
-  // ==========================================================
-  void _showDynamicQrLiveMonitorModal(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        bool isProjectorMode = false;
-        int qrTimer = 25;
-
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Container(
-              height: MediaQuery.of(context).size.height * 0.92,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-              ),
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Container(width: 40, height: 4, decoration: BoxDecoration(color: const Color(0xFFCBD5E1), borderRadius: BorderRadius.circular(2))),
-                  const SizedBox(height: 14),
-
-                  // Header Modal
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textDark),
-                              onPressed: () => Navigator.pop(ctx),
-                            ),
-                            const Text('Detail Perkuliahan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                          ],
-                        ),
-                        Row(
-                          children: [
-                            const Text('Proyektor Mode', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textGrey)),
-                            Transform.scale(
-                              scale: 0.65,
-                              child: Switch(
-                                value: isProjectorMode,
-                                activeThumbColor: AppColors.primary,
-                                onChanged: (val) => setModalState(() => isProjectorMode = val),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          // Label Matkul
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
-                                  Text('Pemrograman Mobile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                                  SizedBox(height: 2),
-                                  Text('Lab 301 • Prof. Handoko', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-                                ],
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(10)),
-                                child: const Text('Sesi Terbuka', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.badgeGreen)),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-
-                          // Indikator Jaringan & Geofence
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(color: const Color(0xFFF0FDF4), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFBBF7D0))),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: const [
-                                Icon(Icons.wifi_tethering_rounded, size: 14, color: AppColors.badgeGreen),
-                                SizedBox(width: 6),
-                                Text('WebSocket Terhubung • GPS Geo-Fence Aktif (Lab 301)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.badgeGreen)),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Kartu Dynamic QR Code
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                              boxShadow: [
-                                BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 16, offset: const Offset(0, 6)),
-                              ],
-                            ),
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: 170,
-                                  height: 170,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF8FAFC),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-                                  ),
-                                  child: Center(
-                                    child: Icon(Icons.qr_code_2_rounded, size: 140, color: isProjectorMode ? AppColors.primary : AppColors.textDark),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(Icons.sync_rounded, size: 14, color: AppColors.primary),
-                                    const SizedBox(width: 6),
-                                    Text('Rotasi QR: ${qrTimer}s', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                const Text('Token dinamis di-refresh otomatis setiap 25 detik\nuntuk mencegah fraud & screenshot.', textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Progres Kehadiran Masuk
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: const [
-                              Text('Kehadiran Masuk', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                              Text('95% Terisi (2 Belum Hadir)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: const LinearProgressIndicator(
-                              value: 0.95,
-                              minHeight: 8,
-                              backgroundColor: Color(0xFFF1F5F9),
-                              valueColor: AlwaysStoppedAnimation<Color>(AppColors.badgeGreen),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Live Monitor Feed
-                          const Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text('AKTIVITAS REAL-TIME', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textGrey)),
-                          ),
-                          const SizedBox(height: 8),
-
-                          _buildLiveMonitorStudentTile('Satria Wijaya', 'NIM: 20240801048', 'Hadir 08:01 WIB', '2m lalu', AppColors.badgeGreen),
-                          _buildLiveMonitorStudentTile('Anisa Putri', 'NIM: 20240801021', 'Hadir 08:03 WIB', '4m lalu', AppColors.badgeGreen),
-                          _buildLiveMonitorStudentTile('Fajar Ramadhan', 'NIM: 20240801055', 'Hadir 08:05 WIB', '6m lalu', AppColors.badgeGreen),
-                          _buildLiveMonitorStudentTile('Rudi Santoso', 'NIM: 20240801002', 'Izin 08:10 WIB', '11m lalu', AppColors.badgeOrange),
-                          const SizedBox(height: 20),
-
-                          // Tombol Presensi Manual
-                          SizedBox(
-                            width: double.infinity,
-                            height: 44,
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: AppColors.primary),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Buka form presensi manual mahasiswa tanpa HP')));
-                              },
-                              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18, color: AppColors.primary),
-                              label: const Text('Presensi Manual Siswa Tanpa HP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-
-                          // Tombol Tutup Sesi
-                          SizedBox(
-                            width: double.infinity,
-                            height: 46,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.badgeRed,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(backgroundColor: AppColors.badgeRed, content: Text('Sesi Perkuliahan Resmi Ditutup! Rekap BAP Tersimpan.')),
-                                );
-                              },
-                              child: const Text('Tutup Sesi Perkuliahan', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
@@ -962,44 +840,16 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
     );
   }
 
-  Widget _buildLiveMonitorStudentTile(String name, String nim, String status, String timeAgo, Color statusColor) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              const CircleAvatar(radius: 14, backgroundColor: Color(0xFFEDE9FE), child: Icon(Icons.person, size: 16, color: AppColors.primary)),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                  Text(nim, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
-                ],
-              ),
-            ],
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(status, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: statusColor)),
-              Text(timeAgo, style: const TextStyle(fontSize: 9, color: AppColors.textGrey)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLecturerClassCard(String title, String subtitle, String time, String room, String badgeText, Color badgeColor, bool canOpenSession) {
+  Widget _buildLecturerClassCard({
+    required String title,
+    required String subtitle,
+    required String time,
+    required String room,
+    required String badgeText,
+    required Color badgeColor,
+    required bool canOpenSession,
+    required VoidCallback onOpen,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
@@ -1028,7 +878,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
               height: 38,
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, elevation: 0),
-                onPressed: () => _showDynamicQrLiveMonitorModal(context),
+                onPressed: onOpen,
                 icon: const Icon(Icons.qr_code_2_rounded, size: 16, color: Colors.white),
                 label: const Text('Buka Monitor & QR Code', style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold)),
               ),

@@ -6,8 +6,10 @@ import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 import '../../../../core/services/geofence_service.dart';
 import '../../../../core/services/qr_token_service.dart';
+import '../../../../core/services/class_session_service.dart';
 import 'dart:convert';
 import '../../../../core/services/attendance_service.dart';
+
 
 class StudentDashboardScreen extends StatefulWidget {
   final UserModel? user;
@@ -628,65 +630,32 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
+// ==========================================
+  // MODAL BOTTOM SHEET: DUAL-GUARD SCANNER (GPS & Geofence Dinamis)
   // ==========================================
-  // MODAL BOTTOM SHEET: DUAL-GUARD SCANNER (Dengan Kamera Riil & Anti-Spam)
+// ==========================================
+  // MODAL BOTTOM SHEET: DUAL-GUARD SCANNER (Clean Architecture via GeofenceService)
   // ==========================================
   void _showDualGuardScannerModal(BuildContext context) async {
-    // 1. Parameter Target Geofence/koordinat
-    const double targetLat = -6.190432;
-    const double targetLng = 106.764512;
-    const double classRadius = 50.0;
-
     final messenger = ScaffoldMessenger.of(context);
 
-    messenger.showSnackBar(
-      const SnackBar(
-        duration: Duration(seconds: 1),
-        content: Text('Memvalidasi radius geofence kelas...'),
-      ),
-    );
-
-    // 2. Validasi posisi GPS riil mahasiswa
-    final result = await GeofenceService.validateUserLocation(
-      targetLat: targetLat,
-      targetLng: targetLng,
-      radiusInMeters: classRadius,
-    );
-
-    if (!context.mounted) return;
-
-    // 3. Jika posisi di luar radius atau menggunakan Mock/Fake GPS: Tolak!
-    if (!result.isWithinRange) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
-            children: const [
-              Icon(Icons.gpp_bad_rounded, color: AppColors.badgeRed, size: 24),
-              SizedBox(width: 8),
-              Text('Presensi Ditolak', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: Text(
-            result.errorMessage ?? 'Posisi Anda berada di luar area presensi kelas.',
-            style: const TextStyle(fontSize: 13, color: AppColors.textGrey),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Mengerti', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ],
+    // 1. Delegasi pengecekan izin & GPS ke GeofenceService
+    final permissionError = await GeofenceService.checkAndRequestPermission();
+    if (permissionError != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.badgeRed,
+          content: Text(permissionError),
         ),
       );
       return;
     }
 
-    // Flag pencegah multi-scan saat kamera membaca frame
+    if (!context.mounted) return;
+
     bool isProcessingScan = false;
 
-    // 4. Jika posisi VALID: Buka Modal Scanner Dual-Guard
+    // 2. Buka Scanner Kamera
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -701,7 +670,11 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           child: Column(
             children: [
               const SizedBox(height: 12),
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white30, borderRadius: BorderRadius.circular(2))),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.white30, borderRadius: BorderRadius.circular(2)),
+              ),
               const SizedBox(height: 14),
 
               // Header Scanner
@@ -715,12 +688,12 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(color: const Color(0xFF065F46), borderRadius: BorderRadius.circular(12)),
                       child: Row(
-                        children: [
-                          const Icon(Icons.gps_fixed, size: 12, color: AppColors.badgeGreen),
-                          const SizedBox(width: 4),
+                        children: const [
+                          Icon(Icons.gps_fixed, size: 12, color: AppColors.badgeGreen),
+                          SizedBox(width: 4),
                           Text(
-                            'GPS Terkunci: ${result.distanceInMeters.toStringAsFixed(1)}m',
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.badgeGreen),
+                            'GPS Siap',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.badgeGreen),
                           ),
                         ],
                       ),
@@ -730,7 +703,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
               ),
               const SizedBox(height: 20),
 
-// Kamera Pemindai Riil dengan Integrasi Supabase RPC
+              // Kamera Pemindai Riil
               SizedBox(
                 width: 260,
                 height: 260,
@@ -738,7 +711,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                   borderRadius: BorderRadius.circular(24),
                   child: MobileScanner(
                     onDetect: (capture) async {
-                      // 1. KUNCI LANGSUNG di baris pertama sebelum ada pembacaan frame lain
                       if (isProcessingScan) return;
 
                       final barcodes = capture.barcodes;
@@ -747,65 +719,89 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                       final code = barcodes.first.rawValue;
                       if (code == null) return;
 
-                      // Kunci proses pemindaian seketika
                       isProcessingScan = true;
 
+                      // A. Validasi Token Kriptografi Dynamic QR
                       final isValidToken = QrTokenService.validateToken(code);
 
                       if (isValidToken) {
-                        // Tutup modal kamera langsung agar kamera berhenti membaca
-                        Navigator.pop(ctx);
+                        Navigator.pop(ctx); // Tutup scanner kamera
 
                         messenger.showSnackBar(
                           const SnackBar(
                             duration: Duration(seconds: 1),
-                            content: Text('Menyimpan presensi ke database...'),
+                            content: Text('Memvalidasi geofence & mencatat presensi...'),
                           ),
                         );
 
                         try {
-                          // 2. Ekstrak data session_id dari QR token JSON
+                          // B. Ekstrak session_id dari QR code
                           final payload = jsonDecode(code);
                           final sessionId = payload['session_id'] as String;
 
-                          // 3. Ambil UUID mahasiswa dari FlutterSecureStorage (SessionService)
+                          // C. Ambil ID mahasiswa aktif dari parameter / SessionService
                           final session = await SessionService.getSession();
-                          final currentUserId = session['userId'];
+                          final currentUserId = widget.user?.id ?? session['userId'];
 
                           if (currentUserId == null) {
                             if (!context.mounted) return;
                             messenger.showSnackBar(
                               const SnackBar(
                                 backgroundColor: AppColors.badgeRed,
-                                content: Text('Sesi login tidak ditemukan. Silakan login ulang.'),
+                                content: Text('Sesi login tidak valid. Silakan login kembali.'),
                               ),
                             );
                             return;
                           }
 
-                          // 4. Eksekusi Stored Procedure RPC Supabase lengkap dengan studentId
+                          // D. Ambil koordinat dinamis sesi via ClassSessionService (Clean Architecture)
+                          final sessionData = await ClassSessionService.getSessionLocation(sessionId);
+
+                          final double lecturerLat = (sessionData['target_lat'] as num).toDouble();
+                          final double lecturerLng = (sessionData['target_lng'] as num).toDouble();
+                          final double sessionRadius = ((sessionData['radius_meter'] ?? 50) as num).toDouble();
+
+                          // E. Eksekusi validasi lokasi dinamis & mock detection via GeofenceService
+                          final geoResult = await GeofenceService.validateUserLocation(
+                            targetLat: lecturerLat,
+                            targetLng: lecturerLng,
+                            radiusInMeters: sessionRadius,
+                            bufferTolerance: 15.0, // Toleransi deviasi dinding gedung
+                          );
+
+                          if (!geoResult.isWithinRange) {
+                            if (!context.mounted) return;
+                            messenger.showSnackBar(
+                              SnackBar(
+                                backgroundColor: AppColors.badgeRed,
+                                content: Text(geoResult.errorMessage ?? 'Di luar jangkauan presensi kelas!'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          // F. Catat presensi ke database via RPC Stored Procedure
                           final response = await AttendanceService.submitAttendance(
                             sessionId: sessionId,
                             studentId: currentUserId,
-                            distance: result.distanceInMeters,
-                            isMocked: result.isMocked,
+                            distance: geoResult.distanceInMeters,
+                            isMocked: geoResult.isMocked,
                           );
 
                           if (!context.mounted) return;
 
-                          // 5. Tampilkan status respon dari server
                           if (response['success'] == true) {
                             messenger.showSnackBar(
                               SnackBar(
                                 backgroundColor: AppColors.badgeGreen,
-                                content: Text(response['message'] ?? 'Presensi Sah! Terverifikasi GPS & Dynamic QR.'),
+                                content: Text('${response['message']} (Jarak: ${geoResult.distanceInMeters.toStringAsFixed(1)}m)'),
                               ),
                             );
                           } else {
                             messenger.showSnackBar(
                               SnackBar(
                                 backgroundColor: AppColors.badgeRed,
-                                content: Text(response['message'] ?? 'Presensi ditolak oleh server.'),
+                                content: Text(response['message'] ?? 'Presensi ditolak.'),
                               ),
                             );
                           }
@@ -814,7 +810,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                           messenger.showSnackBar(
                             SnackBar(
                               backgroundColor: AppColors.badgeRed,
-                              content: Text('Format QR tidak sesuai: $e'),
+                              content: Text('Gagal memproses presensi: $e'),
                             ),
                           );
                         }
@@ -825,7 +821,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                             content: Text('QR Kadaluarsa atau Tidak Valid! Coba lagi.'),
                           ),
                         );
-                        // Beri jeda 2 detik sebelum mengizinkan pemindaian ulang jika gagal
                         Future.delayed(const Duration(seconds: 2), () {
                           isProcessingScan = false;
                         });
@@ -855,23 +850,10 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text('Arahkan ke QR Dosen', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                      Text(
-                        'Geofence Terverifikasi (${result.distanceInMeters.toStringAsFixed(1)}m) • QR berganti tiap 20 detik',
-                        style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
+                      const Text(
+                        'Dual-Guard Protection: Dynamic QR + Radius Geofence Validasi',
+                        style: TextStyle(fontSize: 11, color: AppColors.textGrey),
                         textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 14),
-
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12)),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: const [
-                            Text('Pemrograman Mobile', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                            Text('Menunggu Scan...', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
                       ),
                       const Spacer(),
 
