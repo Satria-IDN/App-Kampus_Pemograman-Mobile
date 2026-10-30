@@ -7,7 +7,6 @@ class AttendanceService {
     required double distance,
     required bool isMocked,
   }) async {
-    // 1. Validasi awal di sisi klien
     if (studentId == null) {
       return {
         'success': false,
@@ -16,7 +15,6 @@ class AttendanceService {
     }
 
     try {
-      // 2. Eksekusi Stored Procedure RPC di Supabase
       final response = await Supabase.instance.client.rpc(
         'record_attendance',
         params: {
@@ -27,7 +25,6 @@ class AttendanceService {
         },
       );
 
-      // 3. Response dari fungsi RPC (mengembalikan boolean atau json)
       return {
         'success': response['success'] ?? true,
         'message': response['message'] ?? 'Presensi berhasil dicatat!',
@@ -35,7 +32,7 @@ class AttendanceService {
     } on PostgrestException catch (e) {
       return {
         'success': false,
-        'message': e.message, // Menangkap pesan kustom dari database (RAISE EXCEPTION)
+        'message': e.message,
       };
     } catch (e) {
       return {
@@ -43,5 +40,16 @@ class AttendanceService {
         'message': 'Terjadi kendala koneksi: $e',
       };
     }
+  }
+
+  static Future<List<Map<String, dynamic>>> getStudentHistory(
+      String studentId) async {
+    final response = await Supabase.instance.client
+        .from('attendance_logs')
+        .select('*, class_sessions(course_name, room_name)')
+        .eq('student_id', studentId)
+        .order('scanned_at', ascending: false);
+
+    return List<Map<String, dynamic>>.from(response);
   }
 }

@@ -174,204 +174,239 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
           ),
         ],
       ),
-      body: Row(
-        children: [
-          // SISI KIRI: DISPLAY QR DINAMIS BESAR
-          Expanded(
-            flex: 5,
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(22),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.25),
-                            blurRadius: 30,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: _currentQrPayload.isEmpty
-                          ? const SizedBox(
-                        width: 260,
-                        height: 260,
-                        child: Center(child: CircularProgressIndicator()),
-                      )
-                          : QrImageView(
-                        data: _currentQrPayload,
-                        version: QrVersions.auto,
-                        size: 260.0,
-                        eyeStyle: const QrEyeStyle(
-                          eyeShape: QrEyeShape.square,
-                          color: Color(0xFF0F172A),
-                        ),
-                        dataModuleStyle: const QrDataModuleStyle(
-                          dataModuleShape: QrDataModuleShape.square,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 700;
 
-                    // Indikator Siklus Refresh Token
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            value: _secondsLeft / 20.0,
-                            strokeWidth: 2.5,
-                            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
-                            backgroundColor: const Color(0xFF334155),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Token berganti dalam $_secondsLeft detik',
-                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Pastikan mahasiswa berada di dalam radius ruang kelas (≤ 50 meter)',
-                      style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                    ),
-                  ],
+          final panels = <Widget>[
+            Expanded(
+              flex: 5,
+              child: _buildQrPanel(isWide: isWide, maxWidth: constraints.maxWidth),
+            ),
+            isWide
+                ? Container(width: 1, color: const Color(0xFF1E293B))
+                : Container(height: 1, color: const Color(0xFF1E293B)),
+            Expanded(flex: 4, child: _buildAttendeePanel()),
+          ];
+
+          // Landscape/tablet: kiri-kanan. Portrait: atas-bawah.
+          return isWide
+              ? Row(children: panels)
+              : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: panels,
+          );
+        },
+      ),
+    );
+  }
+
+  // ================
+  // PANEL QR DINAMIS
+  // ================
+  Widget _buildQrPanel({required bool isWide, required double maxWidth}) {
+    // Landscape: tetap 260. Portrait: menyesuaikan lebar layar (160-220).
+    final qrSize = isWide ? 260.0 : (maxWidth - 92).clamp(160.0, 220.0).toDouble();
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.25),
+                    blurRadius: 30,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: _currentQrPayload.isEmpty
+                  ? SizedBox(
+                width: qrSize,
+                height: qrSize,
+                child: const Center(child: CircularProgressIndicator()),
+              )
+                  : QrImageView(
+                data: _currentQrPayload,
+                version: QrVersions.auto,
+                size: qrSize,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: Color(0xFF0F172A),
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Color(0xFF0F172A),
                 ),
               ),
             ),
+            const SizedBox(height: 24),
+
+            // Indikator Siklus Refresh Token
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    value: _secondsLeft / 20.0,
+                    strokeWidth: 2.5,
+                    valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                    backgroundColor: const Color(0xFF334155),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    'Token berganti dalam $_secondsLeft detik',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Pastikan mahasiswa berada di dalam radius ruang kelas (≤ 50 meter)',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // PANEL DAFTAR KEHADIRAN REALTIME
+  // ==========================================
+  Widget _buildAttendeePanel() {
+    return Container(
+      color: const Color(0xFF131D31),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Expanded(
+                child: Text(
+                  'Daftar Kehadiran Masuk',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${_attendees.length} Mahasiswa',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+            ],
           ),
-
-          // GARIS PEMISAH
-          Container(width: 1, color: const Color(0xFF1E293B)),
-
-          // SISI KANAN: STREAM LOG KEHADIRAN MAHASISWA REALTIME
+          const SizedBox(height: 12),
           Expanded(
-            flex: 4,
-            child: Container(
-              color: const Color(0xFF131D31),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: _isLoadingInitialData
+                ? const Center(child: CircularProgressIndicator())
+                : _attendees.isEmpty
+                ? const Center(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Icon(Icons.qr_code_scanner_rounded, size: 48, color: Color(0xFF475569)),
+                  SizedBox(height: 10),
+                  Text(
+                    'Menunggu mahasiswa memindai QR...',
+                    style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                  ),
+                ],
+              ),
+            )
+                : ListView.separated(
+              itemCount: _attendees.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final item = _attendees[index];
+                final profile = item['profiles'] as Map<String, dynamic>?;
+                final name = profile?['name'] ?? 'Mahasiswa';
+                final nim = profile?['identifier_id'] ?? '-';
+                final dist = item['verified_distance'] != null
+                    ? '${(item['verified_distance'] as num).toStringAsFixed(1)}m'
+                    : 'Terverifikasi';
+
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF334155)),
+                  ),
+                  child: Row(
                     children: [
-                      const Text(
-                        'Daftar Kehadiran Masuk',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      CircleAvatar(
+                        radius: 16,
+                        backgroundColor: AppColors.badgeGreen.withValues(alpha: 0.15),
+                        child: const Icon(Icons.check_rounded, color: AppColors.badgeGreen, size: 18),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              'NIM: $nim',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                            ),
+                          ],
+                        ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(12),
+                          color: const Color(0xFF0F172A),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          '${_attendees.length} Mahasiswa',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                          dist,
+                          style: const TextStyle(
+                            color: AppColors.badgeGreen,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-
-                  Expanded(
-                    child: _isLoadingInitialData
-                        ? const Center(child: CircularProgressIndicator())
-                        : _attendees.isEmpty
-                        ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(Icons.qr_code_scanner_rounded, size: 48, color: Color(0xFF475569)),
-                          SizedBox(height: 10),
-                          Text(
-                            'Menunggu mahasiswa memindai QR...',
-                            style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    )
-                        : ListView.separated(
-                      itemCount: _attendees.length,
-                      separatorBuilder: (_,_) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final item = _attendees[index];
-                        final profile = item['profiles'] as Map<String, dynamic>?;
-                        final name = profile?['name'] ?? 'Mahasiswa';
-                        final nim = profile?['identifier_id'] ?? '-';
-                        final dist = item['verified_distance'] != null
-                            ? '${(item['verified_distance'] as num).toStringAsFixed(1)}m'
-                            : 'Terverifikasi';
-
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1E293B),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF334155)),
-                          ),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 16,
-                                backgroundColor: AppColors.badgeGreen.withValues(alpha: 0.15),
-                                child: const Icon(Icons.check_rounded, color: AppColors.badgeGreen, size: 18),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      name,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    Text(
-                                      'NIM: $nim',
-                                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF0F172A),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  dist,
-                                  style: const TextStyle(
-                                    color: AppColors.badgeGreen,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
+                );
+              },
             ),
           ),
         ],
