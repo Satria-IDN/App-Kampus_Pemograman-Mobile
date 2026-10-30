@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/services/session_service.dart';
+import '../../data/models/user_model.dart';
+import 'role_router.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -70,25 +72,25 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
 
-      // Routing otomatis berdasarkan role dari database
-      switch (role) {
-        case 'mahasiswa':
-          Navigator.pushReplacementNamed(context, '/dashboard-student');
-          break;
-        case 'dosen':
-          Navigator.pushReplacementNamed(context, '/dashboard-lecturer');
-          break;
-        case 'admin':
-          Navigator.pushReplacementNamed(context, '/admin-panel');
-          break;
-        default:
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              backgroundColor: AppColors.badgeRed,
-              content: Text('Peran akun tidak terdefinisi di sistem.'),
-            ),
-          );
+      // Teruskan data user ke dashboard sesuai role
+      final user = UserModel.fromJson(userData);
+      const validRoles = ['mahasiswa', 'dosen', 'admin'];
+      if (!validRoles.contains(user.role)) {
+        await SessionService.clearSession();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.badgeRed,
+            content: Text('Peran akun tidak terdefinisi di sistem.'),
+          ),
+        );
+        return;
       }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => dashboardForUser(user)),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

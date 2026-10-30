@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/services/qr_token_service.dart';
+import '../../../../core/services/class_session_service.dart';
 
 class LecturerQrProjectorScreen extends StatefulWidget {
   final String sessionId;
@@ -25,7 +28,8 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
   final _supabase = Supabase.instance.client;
 
   String _currentQrPayload = '';
-  int _secondsLeft = 20;
+  int _secondsLeft = QrTokenService.tokenTtlSeconds;
+  int _currentBlock = 0;
   Timer? _qrRefreshTimer;
   RealtimeChannel? _attendanceChannel;
 
@@ -35,13 +39,57 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
   @override
   void initState() {
     super.initState();
+    _enterProjectorMode();
     _fetchExistingAttendance();
     _startDynamicQrCycle();
     _subscribeToLiveAttendance();
   }
 
+  // FR-04: kunci landscape, sembunyikan status bar (immersive sticky), layar tetap menyala
+  void _enterProjectorMode() {
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    WakelockPlus.enable();
+  }
+
+  void _exitProjectorMode() {
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    WakelockPlus.disable();
+  }
+
+  Future<void> _confirmEndSession() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Akhiri sesi presensi?'),
+        content: const Text('Setelah diakhiri, mahasiswa tidak bisa lagi melakukan presensi pada sesi ini.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Akhiri')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ClassSessionService.endSession(widget.sessionId);
+      if (!mounted) return;
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(backgroundColor: AppColors.badgeRed, content: Text('Gagal mengakhiri sesi: $e')),
+      );
+    }
+  }
+
   @override
   void dispose() {
+    _exitProjectorMode();
     _qrRefreshTimer?.cancel();
     if (_attendanceChannel != null) {
       _supabase.removeChannel(_attendanceChannel!);
@@ -69,17 +117,19 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
     }
   }
 
-  // 2. Putar token QR dinamis setiap 20 detik
+  // 2. Putar token QR dinamis setiap 30 detik (selaras dengan blok waktu token)
   void _startDynamicQrCycle() {
+    _currentBlock = QrTokenService.currentBlock();
+    _secondsLeft = QrTokenService.secondsRemaining();
     _generateNewQrToken();
 
     _qrRefreshTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
+      final block = QrTokenService.currentBlock();
       setState(() {
-        if (_secondsLeft > 1) {
-          _secondsLeft--;
-        } else {
-          _secondsLeft = 20;
+        _secondsLeft = QrTokenService.secondsRemaining();
+        if (block != _currentBlock) {
+          _currentBlock = block;
           _generateNewQrToken();
         }
       });
@@ -153,6 +203,14 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
           ],
         ),
         actions: [
+          TextButton.icon(
+            onPressed: _confirmEndSession,
+            icon: const Icon(Icons.stop_circle_outlined, color: Color(0xFFF87171), size: 18),
+            label: const Text(
+              'Akhiri Sesi',
+              style: TextStyle(color: Color(0xFFF87171), fontWeight: FontWeight.bold, fontSize: 12),
+            ),
+          ),
           Container(
             margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -257,7 +315,7 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
-                    value: _secondsLeft / 20.0,
+                    value: _secondsLeft / QrTokenService.tokenTtlSeconds,
                     strokeWidth: 2.5,
                     valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
                     backgroundColor: const Color(0xFF334155),

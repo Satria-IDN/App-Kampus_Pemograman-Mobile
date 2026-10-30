@@ -2,13 +2,23 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 class QrTokenService {
-  static const int tokenTtlSeconds = 20;
+  /// Masa berlaku satu blok token (PRD: rotasi 30 detik).
+  static const int tokenTtlSeconds = 30;
   static const String secretKey = "KUNCI_RAHASIA_KAMPUS_PULSE_2026";
+
+  /// Nomor blok waktu saat ini.
+  static int currentBlock() =>
+      DateTime.now().millisecondsSinceEpoch ~/ (tokenTtlSeconds * 1000);
+
+  /// Sisa detik sampai blok berganti (1..tokenTtlSeconds), selaras dengan blok token.
+  static int secondsRemaining() {
+    final elapsed = (DateTime.now().millisecondsSinceEpoch ~/ 1000) % tokenTtlSeconds;
+    return tokenTtlSeconds - elapsed;
+  }
 
   /// Dosen: Menghasilkan payload QR dinamis berbasis waktu
   static String generateSessionPayload(String sessionId) {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final timeBlock = now ~/ (tokenTtlSeconds * 1000);
+    final timeBlock = currentBlock();
 
     final rawString = '$sessionId-$timeBlock-$secretKey';
     final token = sha256.convert(utf8.encode(rawString)).toString().substring(0, 8);
@@ -28,10 +38,10 @@ class QrTokenService {
       final scannedBlock = data['time_block'] as int;
       final scannedToken = data['token'];
 
-      final currentBlock = DateTime.now().millisecondsSinceEpoch ~/ (tokenTtlSeconds * 1000);
+      final nowBlock = currentBlock();
 
-      // Toleransi 1 interval waktu sebelumnya untuk antisipasi jeda render
-      if (scannedBlock != currentBlock && scannedBlock != (currentBlock - 1)) {
+      // Grace period: blok sekarang atau 1 blok sebelumnya (T-1)
+      if (scannedBlock != nowBlock && scannedBlock != (nowBlock - 1)) {
         return false;
       }
 

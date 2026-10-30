@@ -31,6 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
   supabase_flutter: ^2.8.4
+  wakelock_plus: ^1.2.8
   geolocator: ^13.0.2
   mobile_scanner: ^6.0.4
   qr_flutter: ^4.1.0

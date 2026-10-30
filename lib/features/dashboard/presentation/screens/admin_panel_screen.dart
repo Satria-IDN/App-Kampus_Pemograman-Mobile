@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:geolocator/geolocator.dart';
 import '../../../../core/services/session_service.dart';
-import '../../../../core/services/geofence_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
+import '../../../rooms/presentation/widgets/room_management_panel.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   final UserModel? user;
@@ -20,12 +19,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   int _currentNavIndex = 0; // 0: Beranda/GPS, 1: Matkul, 2: Log Audit, 3: Profil
   String _selectedMasterTab = 'Titik GPS';
-  int _selectedRadius = 50;
-  String _activeRoomName = 'Lab Komputer 301';
-  String _activeRoomDetail = 'Gedung B, Lantai 3 • Kampus Utama';
 
-  final TextEditingController _latController = TextEditingController(text: '-6.188224');
-  final TextEditingController _lngController = TextEditingController(text: '106.824550');
+
+  // Kunci untuk membuka form ruangan dari tombol + di bawah
+  final GlobalKey<RoomManagementPanelState> _roomPanelKey = GlobalKey<RoomManagementPanelState>();
 
   // State Data Pengguna dari Supabase
   List<Map<String, dynamic>> _userProfiles = [];
@@ -35,13 +32,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   void initState() {
     super.initState();
     _fetchUserProfiles();
-  }
-
-  @override
-  void dispose() {
-    _latController.dispose();
-    _lngController.dispose();
-    super.dispose();
   }
 
   // Mengambil daftar profil dari Supabase
@@ -75,7 +65,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         elevation: 4,
         backgroundColor: AppColors.primary,
         shape: const CircleBorder(),
-        onPressed: () => _showAddRoomModal(context),
+        onPressed: () {
+          setState(() => _currentNavIndex = 0);
+          _roomPanelKey.currentState?.openEditor();
+        },
         child: const Icon(Icons.add_location_alt_rounded, color: Colors.white, size: 26),
       ),
       bottomNavigationBar: BottomAppBar(
@@ -139,7 +132,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   ),
                   SizedBox(height: 2),
                   Text(
-                    'Pusat Konfigurasi Master Data SIAKAD',
+                    'Pusat Konfigurasi Master Data',
                     style: TextStyle(fontSize: 12, color: AppColors.textGrey, fontWeight: FontWeight.w500),
                   ),
                 ],
@@ -214,303 +207,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Kartu Konfigurasi Geofencing
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 3)),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('TARGET RUANG', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textGrey)),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(6)),
-                      child: const Text('Aktif', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.badgeGreen)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-
-                InkWell(
-                  onTap: () => _showRoomSelectorSheet(),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        _activeRoomName,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark),
-                      ),
-                      const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textGrey),
-                    ],
-                  ),
-                ),
-                Text(_activeRoomDetail, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                const SizedBox(height: 14),
-
-                // Mockup Peta Geofence Interaktif
-                Container(
-                  height: 130,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEEF2FF),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFD6E4FF)),
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 250),
-                        width: _selectedRadius == 15 ? 65 : (_selectedRadius == 50 ? 100 : 130),
-                        height: _selectedRadius == 15 ? 65 : (_selectedRadius == 50 ? 100 : 130),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.primary.withValues(alpha: 0.15),
-                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.5), width: 1.5),
-                        ),
-                      ),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.location_on, color: AppColors.primary, size: 26),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Radius $_selectedRadius Meter',
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary),
-                          ),
-                        ],
-                      ),
-                      Positioned(
-                        bottom: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6)),
-                          child: const Text('Peta Geofence Kampus', style: TextStyle(fontSize: 9, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Batas Radius Geofence', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textDark)),
-                    Text('$_selectedRadius Meter', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _buildRadiusChip(15, 'Min (15m)'),
-                    const SizedBox(width: 8),
-                    _buildRadiusChip(50, '50m (Standar)'),
-                    const SizedBox(width: 8),
-                    _buildRadiusChip(150, 'Max (150m)'),
-                  ],
-                ),
-                const SizedBox(height: 14),
-
-                // Input Latitude & Longitude
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Latitude', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                          const SizedBox(height: 4),
-                          TextField(
-                            controller: _latController,
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                            decoration: InputDecoration(
-                              isDense: true,
-                              filled: true,
-                              fillColor: const Color(0xFFF8FAFC),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Longitude', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                          const SizedBox(height: 4),
-                          TextField(
-                            controller: _lngController,
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                            decoration: InputDecoration(
-                              isDense: true,
-                              filled: true,
-                              fillColor: const Color(0xFFF8FAFC),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // Tombol Kunci GPS Saat Ini
-                SizedBox(
-                  width: double.infinity,
-                  height: 38,
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.primary),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    onPressed: () async {
-                      final messenger = ScaffoldMessenger.of(context);
-                      final error = await GeofenceService.checkAndRequestPermission();
-                      if (error != null) {
-                        if (!mounted) return;
-                        messenger.showSnackBar(SnackBar(backgroundColor: AppColors.badgeRed, content: Text(error)));
-                        return;
-                      }
-
-                      messenger.showSnackBar(
-                        const SnackBar(duration: Duration(seconds: 1), content: Text('Mengunci sinyal satelit GPS...')),
-                      );
-
-                      try {
-                        final pos = await Geolocator.getCurrentPosition(
-                          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-                        );
-
-                        if (!mounted) return;
-                        setState(() {
-                          _latController.text = pos.latitude.toStringAsFixed(6);
-                          _lngController.text = pos.longitude.toStringAsFixed(6);
-                        });
-
-                        messenger.showSnackBar(
-                          SnackBar(
-                            backgroundColor: AppColors.badgeGreen,
-                            content: Text('Lokasi terkunci! Akurasi: ±${pos.accuracy.toStringAsFixed(1)}m'),
-                          ),
-                        );
-                      } catch (e) {
-                        if (!mounted) return;
-                        messenger.showSnackBar(
-                          const SnackBar(backgroundColor: AppColors.badgeRed, content: Text('Gagal membaca koordinat GPS perangkat.')),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.my_location_rounded, size: 16, color: AppColors.primary),
-                    label: const Text(
-                      'Kuncikan Lokasi Saya Saat Ini',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-
-          // Daftar Titik Ruangan
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Daftar Titik Ruangan (3)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-              TextButton(
-                onPressed: () => _showRoomSelectorSheet(),
-                child: const Text('Kelola Semua', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-
-          _buildRoomTile(
-            roomName: 'Lab 301',
-            detail: 'Gedung B Lt. 3 • 50m Radius',
-            status: 'Aktif',
-            statusColor: AppColors.badgeGreen,
-            statusBg: const Color(0xFFDCFCE7),
-            onTap: () {
-              setState(() {
-                _activeRoomName = 'Lab Komputer 301';
-                _activeRoomDetail = 'Gedung B, Lantai 3 • Kampus Utama';
-                _selectedRadius = 50;
-              });
-            },
-          ),
-          const SizedBox(height: 8),
-          _buildRoomTile(
-            roomName: 'Ruang Teori 204',
-            detail: 'Gedung A Lt. 2 • 45m Radius',
-            status: 'Aktif',
-            statusColor: AppColors.badgeGreen,
-            statusBg: const Color(0xFFDCFCE7),
-            onTap: () {
-              setState(() {
-                _activeRoomName = 'Ruang Teori 204';
-                _activeRoomDetail = 'Gedung A, Lantai 2 • Kampus Utama';
-                _selectedRadius = 50;
-              });
-            },
-          ),
-          const SizedBox(height: 8),
-          _buildRoomTile(
-            roomName: 'Auditorium Rektorat',
-            detail: 'Gedung Pusat • 75m Radius',
-            status: 'Khusus Event',
-            statusColor: AppColors.badgeOrange,
-            statusBg: const Color(0xFFFFFBEB),
-            onTap: () {
-              setState(() {
-                _activeRoomName = 'Auditorium Rektorat';
-                _activeRoomDetail = 'Gedung Rektorat Lt. 2 • Kampus Pusat';
-                _selectedRadius = 150;
-              });
-            },
-          ),
-          const SizedBox(height: 18),
-
-          // Tombol Simpan & Sinkronisasi
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    backgroundColor: AppColors.badgeGreen,
-                    content: Text('Konfigurasi Geofencing Berhasil Disinkronisasi ke SIAKAD & Database!'),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.sync_rounded, color: Colors.white, size: 18),
-              label: const Text('Simpan & Sinkronisasi SIAKAD', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
-            ),
-          ),
+          // Kelola titik GPS ruangan & penetapan ruangan per mata kuliah (data nyata)
+          RoomManagementPanel(key: _roomPanelKey),
           const SizedBox(height: 20),
         ],
       ),
@@ -1263,121 +961,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     );
   }
 
-  // ==========================================
-  // MODAL BOTTOM SHEET: TAMBAH RUANG BARU (FAB)
-  // ==========================================
-  void _showAddRoomModal(BuildContext context) {
-    final nameCtrl = TextEditingController();
-    final radiusCtrl = TextEditingController(text: '50');
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: Container(
-          padding: const EdgeInsets.all(22),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(width: 40, height: 4, decoration: BoxDecoration(color: const Color(0xFFCBD5E1), borderRadius: BorderRadius.circular(2))),
-              ),
-              const SizedBox(height: 16),
-              const Text('Tambah Titik Ruang & Geofence', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-              const SizedBox(height: 14),
-
-              TextField(
-                controller: nameCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Nama Ruangan (Contoh: Lab Jaringan 201)',
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: radiusCtrl,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Radius Geofence (Meter)',
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              SizedBox(
-                width: double.infinity,
-                height: 46,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        backgroundColor: AppColors.badgeGreen,
-                        content: Text('Ruang ${nameCtrl.text.isEmpty ? "Baru" : nameCtrl.text} berhasil ditambahkan!'),
-                      ),
-                    );
-                  },
-                  child: const Text('Simpan Ruang Baru', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showRoomSelectorSheet() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Pilih Target Ruangan Geofence', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            _buildRoomOptionTile('Lab Komputer 301', 'Gedung B, Lt. 3 • 50m Radius', '-6.188224', '106.824550', 50),
-            _buildRoomOptionTile('Ruang Teori 204', 'Gedung A, Lt. 2 • 45m Radius', '-6.188150', '106.824600', 50),
-            _buildRoomOptionTile('Auditorium Rektorat', 'Gedung Pusat, Lt. 2 • 75m Radius', '-6.188400', '106.824300', 150),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRoomOptionTile(String name, String detail, String lat, String lng, int rad) {
-    return ListTile(
-      leading: const Icon(Icons.room_rounded, color: AppColors.primary),
-      title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-      subtitle: Text(detail, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-      onTap: () {
-        setState(() {
-          _activeRoomName = name;
-          _activeRoomDetail = detail;
-          _latController.text = lat;
-          _lngController.text = lng;
-          _selectedRadius = rad;
-        });
-        Navigator.pop(context);
-      },
-    );
-  }
-
   void _showAddCourseDialog() {
     showDialog(
       context: context,
@@ -1467,82 +1050,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               Text(title, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : AppColors.primary)),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRadiusChip(int radius, String label) {
-    final isSelected = _selectedRadius == radius;
-    return Expanded(
-      child: InkWell(
-        onTap: () => setState(() => _selectedRadius = radius),
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFEDE9FE) : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: isSelected ? AppColors.primary : const Color(0xFFE2E8F0)),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected ? AppColors.primary : AppColors.textGrey,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRoomTile({
-    required String roomName,
-    required String detail,
-    required String status,
-    required Color statusColor,
-    required Color statusBg,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: const Color(0xFFEDE9FE), borderRadius: BorderRadius.circular(10)),
-              child: const Icon(Icons.meeting_room_rounded, color: AppColors.primary, size: 18),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(roomName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                  Text(detail, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(6)),
-              child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor)),
-            ),
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.textGrey, size: 18),
-          ],
         ),
       ),
     );

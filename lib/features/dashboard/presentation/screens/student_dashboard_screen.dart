@@ -26,8 +26,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final studentName = widget.user?.name ?? 'Satria Wijaya';
-    final studentNim = widget.user?.identifierId ?? '20240801048';
+    final studentName = widget.user?.name ?? 'Mahasiswa';
+    final studentNim = widget.user?.identifierId ?? '-';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -766,7 +766,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                             targetLat: lecturerLat,
                             targetLng: lecturerLng,
                             radiusInMeters: sessionRadius,
-                            bufferTolerance: 15.0, // Toleransi deviasi dinding gedung
+                            bufferTolerance: 0.0, // PRD: batas tegas <= radius ruangan (maks. 50 m)
                           );
 
                           if (!geoResult.isWithinRange) {

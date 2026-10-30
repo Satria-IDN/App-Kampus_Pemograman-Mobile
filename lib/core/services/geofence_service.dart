@@ -69,7 +69,7 @@ class GeofenceService {
     required double targetLat,
     required double targetLng,
     required double radiusInMeters,
-    double bufferTolerance = 15.0, // Toleransi deviasi gedung beton (15 meter)
+    double bufferTolerance = 0.0, // PRD: radius maksimal 50 m, tanpa buffer tambahan
   }) async {
     // 1. Cek izin
     final permissionError = await checkAndRequestPermission();

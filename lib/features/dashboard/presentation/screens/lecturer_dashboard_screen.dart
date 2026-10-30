@@ -5,6 +5,9 @@ import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 import '../../../../core/services/class_session_service.dart';
 import 'lecturer_qr_projector_screen.dart';
+import '../../../courses/data/repositories/course_repository_impl.dart';
+import '../../../courses/domain/entities/course_entity.dart';
+import '../../../courses/domain/usecases/course_usecases.dart';
 
 class LecturerDashboardScreen extends StatefulWidget {
   final UserModel? user;
@@ -18,13 +21,95 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
   int _currentNavIndex = 0; // 0: Beranda, 1: Jadwal, 2: Riwayat, 3: Profil
   String _selectedCategory = 'Reguler'; // Reguler, Workshop, Tamu
 
-// Fungsi membuat atau mengambil sesi kelas riil via ClassSessionService
-  Future<void> _startOrOpenClassSession({
-    required String courseCode,
-    required String courseName,
-    required String roomName,
-    int radius = 50,
-  }) async {
+  final GetLecturerCourses _getLecturerCourses = GetLecturerCourses(CourseRepositoryImpl());
+
+  void _showMessage(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(backgroundColor: AppColors.badgeRed, content: Text(text)),
+    );
+  }
+
+  // Dosen memilih mata kuliah yang diampu; ruangan & titik GPS mengikuti pengaturan admin
+  Future<void> _openCoursePicker() async {
+    final lecturerId = widget.user?.id;
+    if (lecturerId == null) {
+      _showMessage('Data login tidak ditemukan. Silakan login ulang.');
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    List<CourseEntity> courses;
+    try {
+      courses = await _getLecturerCourses(lecturerId);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // tutup loading
+      _showMessage('Gagal memuat mata kuliah: $e');
+      return;
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context); // tutup loading
+
+    if (courses.isEmpty) {
+      _showMessage('Belum ada mata kuliah yang diampu akun ini. Hubungi admin.');
+      return;
+    }
+
+    final selected = await showModalBottomSheet<CourseEntity>(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Pilih Mata Kuliah',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark),
+              ),
+              const SizedBox(height: 8),
+              ...courses.map((c) {
+                final hasRoom = c.room != null;
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  enabled: hasRoom,
+                  title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    hasRoom
+                        ? '${c.code} • ${c.room!.name} • radius ${c.room!.radiusMeter} m'
+                        : '${c.code} • Ruangan belum diatur admin',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: hasRoom ? AppColors.textGrey : AppColors.badgeOrange,
+                    ),
+                  ),
+                  trailing: Icon(
+                    hasRoom ? Icons.chevron_right_rounded : Icons.warning_amber_rounded,
+                    color: hasRoom ? AppColors.textGrey : AppColors.badgeOrange,
+                  ),
+                  onTap: hasRoom ? () => Navigator.pop(ctx, c) : null,
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (selected == null || !mounted) return;
+    await _startOrOpenClassSession(selected);
+  }
+
+  // Membuat atau mengambil sesi kelas aktif via ClassSessionService
+  Future<void> _startOrOpenClassSession(CourseEntity course) async {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -32,16 +117,10 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
     );
 
     try {
-      final currentUserId = widget.user?.id;
-
-      // Delegasikan urusan GPS dosen dan Supabase ke ClassSessionService
       final session = await ClassSessionService.getOrCreateActiveSession(
-        lecturerId: currentUserId,
-        courseCode: courseCode,
-        courseName: courseName,
-        roomName: roomName,
+        lecturerId: widget.user?.id,
+        course: course,
         sessionType: _selectedCategory,
-        radius: radius,
       );
 
       if (!mounted) return;
@@ -53,24 +132,22 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
         MaterialPageRoute(
           builder: (_) => LecturerQrProjectorScreen(
             sessionId: session['id'].toString(),
-            courseName: courseName,
-            roomName: roomName,
+            courseName: course.name,
+            roomName: course.room?.name ?? '-',
           ),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(backgroundColor: AppColors.badgeRed, content: Text('$e')),
-      );
+      _showMessage('$e');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final lecturerName = widget.user?.name ?? 'Prof. Handoko';
-    final lecturerNidn = widget.user?.identifierId ?? '8041';
+    final lecturerName = widget.user?.name ?? 'Dosen';
+    final lecturerNidn = widget.user?.identifierId ?? '-';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -79,12 +156,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
         elevation: 4,
         backgroundColor: AppColors.primary,
         shape: const CircleBorder(),
-        onPressed: () => _startOrOpenClassSession(
-          courseCode: 'IF3201',
-          courseName: 'Pemrograman Mobile',
-          roomName: 'Lab Komputer 301',
-          radius: 50,
-        ),
+        onPressed: () => _openCoursePicker(),
         child: const Icon(Icons.qr_code_2_rounded, color: Colors.white, size: 28),
       ),
       bottomNavigationBar: BottomAppBar(
@@ -268,7 +340,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                           Icon(Icons.sync_rounded, size: 12, color: AppColors.primary),
                           SizedBox(width: 4),
                           Text(
-                            'Dynamic QR Aktif (20s)',
+                            'Dynamic QR Aktif (30s)',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
@@ -308,9 +380,9 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: const [
-                            Text('Lab Komputer 301 • Terkunci', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+                            Text('Ruangan mengikuti mata kuliah', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textDark)),
                             SizedBox(height: 2),
-                            Text('Radius Geofence: 50m • Lantai 3 Gedung B', style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
+                            Text('Titik GPS & radius dikunci oleh admin', style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
                           ],
                         ),
                       ),
@@ -329,12 +401,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
-                    onPressed: () => _startOrOpenClassSession(
-                      courseCode: 'IF3201',
-                      courseName: 'Pemrograman Mobile',
-                      roomName: 'Lab Komputer 301',
-                      radius: 50,
-                    ),
+                    onPressed: () => _openCoursePicker(),
                     icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 18),
                     label: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -453,12 +520,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
             badgeText: 'Sedang Aktif',
             badgeColor: AppColors.badgeGreen,
             canOpenSession: true,
-            onOpen: () => _startOrOpenClassSession(
-              courseCode: 'IF3201',
-              courseName: 'Pemrograman Mobile',
-              roomName: 'Lab Komputer 301',
-              radius: 50,
-            ),
+            onOpen: () => _openCoursePicker(),
           ),
           const SizedBox(height: 12),
           _buildLecturerClassCard(
@@ -469,12 +531,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
             badgeText: 'Sesi Hari Ini',
             badgeColor: AppColors.primary,
             canOpenSession: true,
-            onOpen: () => _startOrOpenClassSession(
-              courseCode: 'IF3105',
-              courseName: 'Kecerdasan Buatan & ML',
-              roomName: 'Auditorium Rektorat',
-              radius: 150,
-            ),
+            onOpen: () => _openCoursePicker(),
           ),
           const SizedBox(height: 12),
           _buildLecturerClassCard(
