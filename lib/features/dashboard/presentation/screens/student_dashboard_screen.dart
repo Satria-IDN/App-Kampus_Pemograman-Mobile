@@ -9,6 +9,9 @@ import '../../../../core/services/qr_token_service.dart';
 import '../../../../core/services/class_session_service.dart';
 import 'dart:convert';
 import '../../../../core/services/attendance_service.dart';
+import '../../../student_academic/data/repositories/student_academic_repository_impl.dart';
+import '../../../student_academic/domain/entities/student_academic_entities.dart';
+import '../../../student_academic/domain/usecases/get_student_overview.dart';
 
 
 class StudentDashboardScreen extends StatefulWidget {
@@ -21,8 +24,19 @@ class StudentDashboardScreen extends StatefulWidget {
 
 class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   int _currentNavIndex = 0; // 0: Beranda, 1: Jadwal, 2: Riwayat, 3: Profil
-  int _selectedDay = 16; // Tanggal aktif di kalender mingguan
-  String _selectedJadwalFilter = 'Semua'; // Semua, Kuliah (KRS), Event
+  late int _selectedWeekday = DateTime.now().weekday; // 1 = Senin ... 7 = Minggu
+
+  final StudentAcademicRepositoryImpl _academicRepo = StudentAcademicRepositoryImpl();
+  late final GetStudentOverview _getOverview = GetStudentOverview(_academicRepo);
+  StudentOverview? _overview;
+  bool _isLoadingOverview = true;
+  String? _overviewError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOverview();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -76,556 +90,705 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   // ==========================================
   // TAB 0: BERANDA
   // ==========================================
-  Widget _buildTabBeranda(String name, String nim) {
-    final firstName = name.split(' ').first;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+  // ==========================================
+  // DATA AKADEMIK (jadwal, riwayat, kuota alpa) dari Supabase
+  // ==========================================
+  Future<void> _loadOverview() async {
+    final studentId = widget.user?.id;
+    if (studentId == null) {
+      setState(() {
+        _isLoadingOverview = false;
+        _overviewError = 'Data login tidak ditemukan. Silakan login ulang.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingOverview = _overview == null;
+      _overviewError = null;
+    });
+
+    try {
+      final data = await _getOverview(studentId);
+      if (!mounted) return;
+      setState(() {
+        _overview = data;
+        _isLoadingOverview = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingOverview = false;
+        _overviewError = '$e';
+      });
+    }
+  }
+
+  static const List<String> _monthNames = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+  ];
+  static const List<String> _shortMonthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+  ];
+  static const List<String> _fullDayNames = [
+    'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu',
+  ];
+
+  String _semesterLabel() {
+    final now = DateTime.now();
+    if (now.month >= 8) return 'Semester Ganjil ${now.year}/${now.year + 1}';
+    if (now.month == 1) return 'Semester Ganjil ${now.year - 1}/${now.year}';
+    return 'Semester Genap ${now.year - 1}/${now.year}';
+  }
+
+  String _formatDateTime(DateTime? t) {
+    if (t == null) return '-';
+    final dd = t.day.toString().padLeft(2, '0');
+    final hh = t.hour.toString().padLeft(2, '0');
+    final mm = t.minute.toString().padLeft(2, '0');
+    return '$dd ${_shortMonthNames[t.month - 1]} ${t.year} • $hh:$mm WIB';
+  }
+
+  Widget _tabScroll(List<Widget> children) {
+    return RefreshIndicator(
+      onRefresh: _loadOverview,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
+        ),
+      ),
+    );
+  }
+
+  Widget _overviewPlaceholder() {
+    if (_isLoadingOverview) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 48),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildAppHeader(name),
-          const SizedBox(height: 14),
           Text(
-            'Halo, $firstName 👋',
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textDark,
-              letterSpacing: -0.5,
-            ),
+            'Gagal memuat data akademik.\n${_overviewError ?? ''}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12, color: AppColors.badgeRed),
           ),
-          const SizedBox(height: 2),
-          const Text(
-            'Semester Genap 2024/2025',
-            style: TextStyle(fontSize: 12, color: AppColors.textGrey, fontWeight: FontWeight.w500),
-          ),
-          const SizedBox(height: 16),
-
-          // Hero Card Akademik & Presensi
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 14,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEEF2FF),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text(
-                              'MAHASISWA AKTIF',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            name,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text('Prodi Informatika (S1)', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-                          const SizedBox(height: 2),
-                          Text('NIM: $nim', style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                        ],
-                      ),
-                    ),
-                    Column(
-                      children: [
-                        SizedBox(
-                          width: 64,
-                          height: 64,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: const [
-                              CircularProgressIndicator(
-                                value: 0.92,
-                                strokeWidth: 6,
-                                backgroundColor: Color(0xFFF1F5F9),
-                                color: AppColors.primary,
-                              ),
-                              Center(
-                                child: Text('92%', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text('23/25 Sesi Hadir', style: TextStyle(fontSize: 10, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  ],
-                ),
-                const Divider(height: 22, thickness: 1, color: Color(0xFFF1F5F9)),
-                Row(
-                  children: const [
-                    Icon(Icons.shield_outlined, size: 16, color: AppColors.badgeGreen),
-                    SizedBox(width: 6),
-                    Text('Jatah Alpa : Aman (0/3)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.badgeGreen)),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Banner Sesi Siap Presensi
-          InkWell(
-            onTap: () => _showDualGuardScannerModal(context),
-            borderRadius: BorderRadius.circular(14),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0F5FF),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFD6E4FF)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
-                    child: const Icon(Icons.access_time_filled_rounded, color: AppColors.primary, size: 18),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Akses 11-15: Sesi Pemrograman Mobile siap presensi!', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                        SizedBox(height: 2),
-                        Text('Lab 301 • Ketuk untuk pindai QR sekarang', style: TextStyle(fontSize: 10, color: AppColors.primary, fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right_rounded, color: AppColors.primary),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Grid 4 Aksi Cepat
-          Row(
-            children: [
-              Expanded(
-                child: _buildQuickActionCard(
-                  icon: Icons.qr_code_2_rounded,
-                  title: 'Presensi QR',
-                  subtitle: 'Buka Kamera',
-                  iconBg: const Color(0xFFEEF2FF),
-                  iconColor: AppColors.primary,
-                  onTap: () => _showDualGuardScannerModal(context),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildQuickActionCard(
-                  icon: Icons.calendar_today_rounded,
-                  title: 'Jadwal',
-                  subtitle: 'Lihat Kalender',
-                  iconBg: const Color(0xFFF0FDF4),
-                  iconColor: AppColors.badgeGreen,
-                  onTap: () => setState(() => _currentNavIndex = 1),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildQuickActionCard(
-                  icon: Icons.assignment_outlined,
-                  title: 'Izin / Sakit',
-                  subtitle: 'Upload Dokumen',
-                  iconBg: const Color(0xFFFFF7ED),
-                  iconColor: AppColors.badgeOrange,
-                  onTap: () => _showDispensasiDialog(),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildQuickActionCard(
-                  icon: Icons.military_tech_outlined,
-                  title: 'Nilai & SKS',
-                  subtitle: 'IPK 3.84',
-                  iconBg: const Color(0xFFFAF5FF),
-                  iconColor: const Color(0xFF8B5CF6),
-                  onTap: () => setState(() => _currentNavIndex = 3),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 22),
-
-          // Jadwal Hari Ini
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: const [
-                  Icon(Icons.circle, color: AppColors.primary, size: 8),
-                  SizedBox(width: 6),
-                  Text('Jadwal Hari Ini', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                ],
-              ),
-              TextButton(
-                onPressed: () => setState(() => _currentNavIndex = 1),
-                child: const Text('Semua Sesi', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-
-          // Card Kelas Aktif
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('08:00 - 09:40 WIB', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(6)),
-                      child: const Text('Reguler', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.badgeGreen)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                const Text('Pemrograman Mobile', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                const SizedBox(height: 4),
-                const Text('Prof. Dr. Ir. Handoko, M.Kom • Lab 301', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  height: 42,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: () => _showDualGuardScannerModal(context),
-                    icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 18),
-                    label: const Text('Presensi Sekarang', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.circle, color: AppColors.badgeGreen, size: 8),
-              SizedBox(width: 6),
-              Text('GPS Aktif: Terkoneksi ke BTS Kampus | Dalam Radius Lab 301', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF0F766E))),
-            ],
-          ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 8),
+          OutlinedButton(onPressed: _loadOverview, child: const Text('Coba lagi')),
         ],
       ),
     );
   }
 
-  // ==========================================
-  // TAB 1: JADWAL & AGENDA KAMPUS
-  // ==========================================
-  Widget _buildTabJadwal() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: const [
-              Text('Jadwal & Agenda', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-              Text('22 SKS Aktif', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
-            ],
-          ),
-          const SizedBox(height: 12),
+  Widget _emptyCard(String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: Text(text, style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+    );
+  }
 
-          Row(
-            children: [
-              _buildFilterChip('Semua'),
-              const SizedBox(width: 8),
-              _buildFilterChip('Kuliah (KRS)'),
-              const SizedBox(width: 8),
-              _buildFilterChip('Event'),
-            ],
-          ),
-          const SizedBox(height: 16),
+  /// Status kartu jadwal. Tombol scan hanya aktif jika dosen sudah membuka sesi.
+  ({String tag, Color color, bool canScan}) _scheduleStatus(ScheduleItem s, {required bool isToday}) {
+    if (!isToday) {
+      return (tag: 'Terjadwal', color: AppColors.textGrey, canScan: false);
+    }
+    if (s.activeSessionId != null) {
+      return (tag: 'Sesi Aktif Sekarang', color: AppColors.badgeGreen, canScan: true);
+    }
+    final now = DateTime.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+    if (nowMinutes < s.startMinutes) {
+      return (tag: 'Mendatang', color: AppColors.textGrey, canScan: false);
+    }
+    if (nowMinutes > s.endMinutes) {
+      return (tag: 'Selesai', color: AppColors.textGrey, canScan: false);
+    }
+    return (tag: 'Menunggu dosen membuka sesi', color: AppColors.badgeOrange, canScan: false);
+  }
 
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _scheduleCard(ScheduleItem s, {required bool isToday}) {
+    final st = _scheduleStatus(s, isToday: isToday);
+    return _buildJadwalItemCard(
+      code: s.courseCode,
+      title: s.courseName,
+      time: '${s.startTime} - ${s.endTime} WIB',
+      room: s.roomName ?? 'Ruangan belum diatur',
+      lecturer: s.lecturerName ?? '',
+      tag: st.tag,
+      tagColor: st.color,
+      canScan: st.canScan,
+    );
+  }
+
+  Color _historyColor(String status) {
+    switch (status) {
+      case 'Hadir':
+        return AppColors.badgeGreen;
+      case 'Izin':
+      case 'Sakit':
+        return AppColors.badgeOrange;
+      default:
+        return AppColors.badgeRed;
+    }
+  }
+
+  String _historyLabel(AttendanceRecord r) {
+    if (r.status == 'Alpa') return 'Alpa (tidak presensi)';
+    return r.status;
+  }
+
+  Widget _alpaCardFor(CourseAttendanceSummary c) {
+    final Color color = c.alpa >= 2
+        ? AppColors.badgeRed
+        : (c.alpa == 1 ? AppColors.badgeOrange : AppColors.badgeGreen);
+    final pct = c.percentage.toStringAsFixed(0);
+
+    String note;
+    if (c.isBlocked) {
+      note = 'TERCEKAL: batas alpa tercapai. Segera hubungi dosen atau akademik.';
+    } else if (c.alpa == 2) {
+      note = 'BAHAYA: Sisa 1 kali alpa sebelum pencekalan ujian akhir!';
+    } else if (c.alpa == 1) {
+      note = 'Perhatian: Kuota tersisa 2 kali kehadiran alpa.';
+    } else if (c.hasMeetings) {
+      note = 'Aman: Tingkat kehadiran $pct%.';
+    } else {
+      note = 'Belum ada pertemuan tercatat.';
+    }
+
+    final detail = c.hasMeetings
+        ? '${c.sks} SKS • $pct% hadir (${c.attended}/${c.totalMeetings})'
+        : '${c.sks} SKS • belum ada pertemuan';
+
+    return _buildAlpaCard(
+      courseTitle: c.name,
+      sks: detail,
+      alpaCount: '${c.alpa} / ${CourseAttendanceSummary.maxAlpa} Alpa',
+      statusNote: note,
+      isCritical: c.isCritical,
+      badgeColor: color,
+    );
+  }
+
+  // ==========================================
+  // TAB 0: BERANDA
+  // ==========================================
+  Widget _buildTabBeranda(String name, String nim) {
+    final firstName = name.split(' ').first;
+    final o = _overview;
+
+    return _tabScroll([
+      _buildAppHeader(name),
+      const SizedBox(height: 14),
+      Text(
+        'Halo, $firstName 👋',
+        style: const TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+          color: AppColors.textDark,
+          letterSpacing: -0.5,
+        ),
+      ),
+      const SizedBox(height: 2),
+      Text(
+        _semesterLabel(),
+        style: const TextStyle(fontSize: 12, color: AppColors.textGrey, fontWeight: FontWeight.w500),
+      ),
+      const SizedBox(height: 16),
+      if (o == null) _overviewPlaceholder() else ..._berandaContent(o, name, nim),
+    ]);
+  }
+
+  List<Widget> _berandaContent(StudentOverview o, String name, String nim) {
+    final pct = o.overallPercentage;
+    final ringValue = o.hasMeetings ? pct / 100 : 0.0;
+    final ringText = o.hasMeetings ? '${pct.toStringAsFixed(0)}%' : '-';
+    final sessionText = o.hasMeetings ? '${o.totalAttended}/${o.totalMeetings} Sesi Hadir' : 'Belum ada sesi';
+
+    final worst = o.worstAlpa;
+    final Color alpaColor = worst >= 2
+        ? AppColors.badgeRed
+        : (worst == 1 ? AppColors.badgeOrange : AppColors.badgeGreen);
+    final String alpaStatus = worst >= 2 ? 'BAHAYA' : (worst == 1 ? 'Perhatian' : 'Aman');
+    final String alpaText = 'Jatah Alpa : $alpaStatus ($worst/${CourseAttendanceSummary.maxAlpa})';
+
+    final ipkText = widget.user?.ipk?.toStringAsFixed(2) ?? '-';
+
+    // Jadwal hari ini + sesi aktif yang tidak ada di jadwal hari ini
+    final today = DateTime.now().weekday;
+    final todays = o.schedules.where((s) => s.dayOfWeek == today).toList();
+    final todayCards = <Widget>[];
+    for (final s in todays) {
+      todayCards.add(_scheduleCard(s, isToday: true));
+      todayCards.add(const SizedBox(height: 12));
+    }
+    final scheduledCodes = todays.map((s) => s.courseCode).toSet();
+    for (final a in o.activeSessions) {
+      if (scheduledCodes.contains(a.courseCode)) continue;
+      todayCards.add(_buildJadwalItemCard(
+        code: a.courseCode,
+        title: a.courseName,
+        time: 'Sesi sedang berlangsung',
+        room: a.roomName ?? '-',
+        lecturer: '',
+        tag: 'Sesi Aktif Sekarang',
+        tagColor: AppColors.badgeGreen,
+        canScan: true,
+      ));
+      todayCards.add(const SizedBox(height: 12));
+    }
+    if (todayCards.isEmpty) {
+      todayCards.add(_emptyCard('Tidak ada kuliah terjadwal hari ini.'));
+    }
+
+    return [
+      // Hero Card Akademik & Presensi
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Oktober 2026 • Pekan 8', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF2FF),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'MAHASISWA AKTIF',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        name,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text('Prodi Informatika (S1)', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                      const SizedBox(height: 2),
+                      Text('NIM: $nim', style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                    ],
+                  ),
+                ),
+                Column(
                   children: [
-                    _buildDayPill('Sen', 14),
-                    _buildDayPill('Sel', 15),
-                    _buildDayPill('Rab', 16),
-                    _buildDayPill('Kam', 17),
-                    _buildDayPill('Jum', 18),
-                    _buildDayPill('Sab', 19),
-                    _buildDayPill('Min', 20),
+                    SizedBox(
+                      width: 64,
+                      height: 64,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          CircularProgressIndicator(
+                            value: ringValue,
+                            strokeWidth: 6,
+                            backgroundColor: const Color(0xFFF1F5F9),
+                            color: AppColors.primary,
+                          ),
+                          Center(
+                            child: Text(
+                              ringText,
+                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      sessionText,
+                      style: const TextStyle(fontSize: 10, color: AppColors.textGrey, fontWeight: FontWeight.w600),
+                    ),
                   ],
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 18),
+            const Divider(height: 22, thickness: 1, color: Color(0xFFF1F5F9)),
+            Row(
+              children: [
+                Icon(
+                  worst >= 2 ? Icons.warning_amber_rounded : Icons.shield_outlined,
+                  size: 16,
+                  color: alpaColor,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  alpaText,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: alpaColor),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
 
-          const Text('Perkuliahan Hari Ini', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-          const SizedBox(height: 10),
-
-          _buildJadwalItemCard(
-            code: 'IF3201',
-            title: 'Pemrograman Mobile',
-            time: '08:00 - 10:30 WIB',
-            room: 'Lab Multimedia 302',
-            lecturer: 'Dr. Budi Santoso, M.Kom',
-            tag: 'Sesi Aktif Sekarang',
-            tagColor: AppColors.badgeGreen,
-            canScan: true,
-          ),
-          const SizedBox(height: 12),
-
-          _buildJadwalItemCard(
-            code: 'IF3204',
-            title: 'Basis Data Terdistribusi',
-            time: '13:00 - 15:30 WIB',
-            room: 'Ruang Teori R.401',
-            lecturer: 'Prof. Handoko, Ph.D',
-            tag: 'Mendatang',
-            tagColor: AppColors.textGrey,
-            canScan: false,
-          ),
-          const SizedBox(height: 20),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: const [
-              Text('Event & Agenda Kampus', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-              Text('Lihat Semua', style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600)),
-            ],
-          ),
-          const SizedBox(height: 10),
-
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      // Banner sesi siap presensi (hanya jika dosen sedang membuka sesi)
+      if (o.activeSessions.isNotEmpty) ...[
+        InkWell(
+          onTap: () => _showDualGuardScannerModal(context),
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0F5FF),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFD6E4FF)),
+            ),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(12)),
-                  child: const Icon(Icons.rocket_launch_rounded, color: AppColors.primary, size: 24),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+                  child: const Icon(Icons.access_time_filled_rounded, color: AppColors.primary, size: 18),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text('AI & Cloud Architecture Summit 2026', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                      SizedBox(height: 2),
-                      Text('Kamis, 17 Okt • Auditorium Rektorat', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                    children: [
+                      Text(
+                        'Sesi ${o.activeSessions.first.courseName} siap presensi!',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${o.activeSessions.first.roomName ?? '-'} • Ketuk untuk pindai QR sekarang',
+                        style: const TextStyle(fontSize: 10, color: AppColors.primary, fontWeight: FontWeight.w600),
+                      ),
                     ],
                   ),
                 ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tiket QR Event Dibuka')));
-                  },
-                  child: const Text('Tiket QR', style: TextStyle(fontSize: 11, color: Colors.white)),
-                ),
+                const Icon(Icons.chevron_right_rounded, color: AppColors.primary),
               ],
             ),
           ),
-          const SizedBox(height: 20),
+        ),
+        const SizedBox(height: 16),
+      ] else
+        const SizedBox(height: 4),
+
+      // Grid 4 Aksi Cepat
+      Row(
+        children: [
+          Expanded(
+            child: _buildQuickActionCard(
+              icon: Icons.qr_code_2_rounded,
+              title: 'Presensi QR',
+              subtitle: 'Buka Kamera',
+              iconBg: const Color(0xFFEEF2FF),
+              iconColor: AppColors.primary,
+              onTap: () => _showDualGuardScannerModal(context),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildQuickActionCard(
+              icon: Icons.calendar_today_rounded,
+              title: 'Jadwal',
+              subtitle: 'Lihat Kalender',
+              iconBg: const Color(0xFFF0FDF4),
+              iconColor: AppColors.badgeGreen,
+              onTap: () => setState(() => _currentNavIndex = 1),
+            ),
+          ),
         ],
       ),
-    );
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          Expanded(
+            child: _buildQuickActionCard(
+              icon: Icons.assignment_outlined,
+              title: 'Izin / Sakit',
+              subtitle: 'Upload Dokumen',
+              iconBg: const Color(0xFFFFF7ED),
+              iconColor: AppColors.badgeOrange,
+              onTap: () => _showDispensasiDialog(),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildQuickActionCard(
+              icon: Icons.military_tech_outlined,
+              title: 'Nilai & SKS',
+              subtitle: 'IPK $ipkText',
+              iconBg: const Color(0xFFFAF5FF),
+              iconColor: const Color(0xFF8B5CF6),
+              onTap: () => setState(() => _currentNavIndex = 3),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 22),
+
+      // Jadwal Hari Ini
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.circle, color: AppColors.primary, size: 8),
+              SizedBox(width: 6),
+              Text('Jadwal Hari Ini', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+            ],
+          ),
+          TextButton(
+            onPressed: () => setState(() => _currentNavIndex = 1),
+            child: const Text('Semua Sesi', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      ...todayCards,
+      const SizedBox(height: 8),
+    ];
+  }
+
+  // ==========================================
+  // TAB 1: JADWAL MINGGUAN
+  // ==========================================
+  Widget _buildTabJadwal() {
+    final o = _overview;
+    final now = DateTime.now();
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    const dayNames = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+    final isToday = _selectedWeekday == now.weekday;
+
+    final List<Widget> body = [];
+    if (o == null) {
+      body.add(_overviewPlaceholder());
+    } else {
+      final items = o.schedules.where((s) => s.dayOfWeek == _selectedWeekday).toList();
+      if (items.isEmpty) {
+        body.add(_emptyCard('Tidak ada kuliah pada hari ${_fullDayNames[_selectedWeekday - 1]}.'));
+      } else {
+        for (final s in items) {
+          body.add(_scheduleCard(s, isToday: isToday));
+          body.add(const SizedBox(height: 12));
+        }
+      }
+    }
+
+    return _tabScroll([
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text('Jadwal Kuliah', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+          Text(
+            o == null ? '' : '${o.totalSks} SKS Aktif',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
+          ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${_monthNames[now.month - 1]} ${now.year}',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textDark),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: List.generate(
+                7,
+                (i) => _buildDayPill(dayNames[i], monday.add(Duration(days: i)).day, i + 1),
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 18),
+      Text(
+        isToday ? 'Perkuliahan Hari Ini' : 'Perkuliahan Hari ${_fullDayNames[_selectedWeekday - 1]}',
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark),
+      ),
+      const SizedBox(height: 10),
+      ...body,
+      const SizedBox(height: 8),
+    ]);
   }
 
   // ==========================================
   // TAB 2: RIWAYAT KEHADIRAN
   // ==========================================
   Widget _buildTabRiwayat() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Riwayat Presensi', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-          const SizedBox(height: 4),
-          const Text('Log kehadiran tersinkronisasi SIAKAD & GPS', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-          const SizedBox(height: 16),
+    final o = _overview;
+    final List<Widget> body = [];
+    if (o == null) {
+      body.add(_overviewPlaceholder());
+    } else if (o.history.isEmpty) {
+      body.add(_emptyCard('Belum ada riwayat presensi.'));
+    } else {
+      for (final r in o.history) {
+        body.add(_buildHistoryItem(
+          r.courseName,
+          _formatDateTime(r.time),
+          r.roomName ?? '-',
+          _historyLabel(r),
+          _historyColor(r.status),
+        ));
+        body.add(const SizedBox(height: 10));
+      }
+    }
 
-          _buildHistoryItem('Pemrograman Mobile', '16 Okt 2026 • 08:05 WIB', 'Lab 301', 'Hadir Tepat Waktu', AppColors.badgeGreen),
-          const SizedBox(height: 10),
-          _buildHistoryItem('Basis Data Terdistribusi', '14 Okt 2026 • 13:00 WIB', 'Ruang 401', 'Hadir Tepat Waktu', AppColors.badgeGreen),
-          const SizedBox(height: 10),
-          _buildHistoryItem('Kalkulus Lanjut', '12 Okt 2026 • 10:00 WIB', 'Ruang 202', 'Izin Sakit (Disetujui)', AppColors.badgeOrange),
-          const SizedBox(height: 10),
-          _buildHistoryItem('Pemrograman Berorientasi Objek', '08 Okt 2026 • 08:00 WIB', 'Lab 205', 'Alpa (Di Luar Radius)', AppColors.badgeRed),
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
+    return _tabScroll([
+      const Text('Riwayat Presensi', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+      const SizedBox(height: 4),
+      const Text('Log kehadiran terverifikasi QR dinamis & GPS', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+      const SizedBox(height: 16),
+      ...body,
+      const SizedBox(height: 10),
+    ]);
   }
 
   // ==========================================
   // TAB 3: PROFIL & TOLERANSI ALPA
   // ==========================================
   Widget _buildTabProfil(String name, String nim) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-            child: Row(
-              children: [
-                const CircleAvatar(
-                  radius: 28,
-                  backgroundColor: Color(0xFFEDE9FE),
-                  child: Icon(Icons.person, color: AppColors.primary, size: 34),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                      const SizedBox(height: 2),
-                      Text('NIM: $nim', style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
-                      const SizedBox(height: 2),
-                      const Text('Fakultas Ilmu Komputer • Informatika', style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-              ],
+    final o = _overview;
+    final ipkText = widget.user?.ipk?.toStringAsFixed(2) ?? '-';
+    final sksText = '${widget.user?.sksTotal ?? 0} SKS';
+
+    final List<Widget> alpaBody = [];
+    if (o == null) {
+      alpaBody.add(_overviewPlaceholder());
+    } else if (o.courses.isEmpty) {
+      alpaBody.add(_emptyCard('Belum ada mata kuliah (KRS) untuk akun ini.'));
+    } else {
+      for (final c in o.courses) {
+        alpaBody.add(_alpaCardFor(c));
+        alpaBody.add(const SizedBox(height: 10));
+      }
+    }
+
+    return _tabScroll([
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              radius: 28,
+              backgroundColor: Color(0xFFEDE9FE),
+              child: Icon(Icons.person, color: AppColors.primary, size: 34),
             ),
-          ),
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              _buildProfileStatBox('Semester', '5'),
-              const SizedBox(width: 10),
-              _buildProfileStatBox('IPK Kumulatif', '3.84'),
-              const SizedBox(width: 10),
-              _buildProfileStatBox('Total SKS', '88 SKS'),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: const [
-              Text('Status & Batas Toleransi Alpa', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-              Icon(Icons.info_outline, size: 16, color: AppColors.textGrey),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text('Maksimal toleransi alpa per matkul adalah 3 kali sebelum pencekalan UAS.', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-          const SizedBox(height: 12),
-
-          _buildAlpaCard(
-            courseTitle: 'Kalkulus Lanjut',
-            sks: '3 SKS • Semester Genap',
-            alpaCount: '2 / 3 Alpa',
-            statusNote: 'BAHAYA: Sisa 1 kali alpa sebelum pencekalan ujian akhir!',
-            isCritical: true,
-            badgeColor: AppColors.badgeRed,
-          ),
-          const SizedBox(height: 10),
-
-          _buildAlpaCard(
-            courseTitle: 'Pemrograman Berorientasi Objek',
-            sks: '3 SKS • Semester Genap',
-            alpaCount: '1 / 3 Alpa',
-            statusNote: 'Perhatian: Kuota tersisa 2 kali kehadiran alpa.',
-            isCritical: false,
-            badgeColor: AppColors.badgeOrange,
-          ),
-          const SizedBox(height: 10),
-
-          _buildAlpaCard(
-            courseTitle: 'Pemrograman Mobile',
-            sks: '3 SKS • Semester Genap',
-            alpaCount: '0 / 3 Alpa',
-            statusNote: 'Aman: Tingkat kehadiran sempurna 100%.',
-            isCritical: false,
-            badgeColor: AppColors.badgeGreen,
-          ),
-          const SizedBox(height: 24),
-
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: AppColors.badgeRed),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+                  const SizedBox(height: 2),
+                  Text('NIM: $nim', style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                  const SizedBox(height: 2),
+                  const Text('Fakultas Ilmu Komputer • Informatika', style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600)),
+                ],
               ),
-              onPressed: () async {
-                final navigator = Navigator.of(context);
-                await SessionService.clearSession();
-                navigator.pushReplacement(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                );
-              },
-              icon: const Icon(Icons.logout_rounded, color: AppColors.badgeRed, size: 18),
-              label: const Text('Keluar dari Akun (Logout)', style: TextStyle(color: AppColors.badgeRed, fontWeight: FontWeight.bold)),
             ),
-          ),
-          const SizedBox(height: 20),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          _buildProfileStatBox('Mata Kuliah', '${o?.courses.length ?? 0}'),
+          const SizedBox(width: 10),
+          _buildProfileStatBox('IPK Kumulatif', ipkText),
+          const SizedBox(width: 10),
+          _buildProfileStatBox('Total SKS', sksText),
         ],
+      ),
+      const SizedBox(height: 20),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: const [
+          Text('Status & Batas Toleransi Alpa', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+          Icon(Icons.info_outline, size: 16, color: AppColors.textGrey),
+        ],
+      ),
+      const SizedBox(height: 6),
+      const Text(
+        'Maksimal toleransi alpa per matkul adalah 3 kali sebelum pencekalan UAS.',
+        style: TextStyle(fontSize: 11, color: AppColors.textGrey),
+      ),
+      const SizedBox(height: 12),
+      ...alpaBody,
+      const SizedBox(height: 14),
+      SizedBox(
+        width: double.infinity,
+        height: 46,
+        child: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: AppColors.badgeRed),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          onPressed: () async {
+            final navigator = Navigator.of(context);
+            await SessionService.clearSession();
+            navigator.pushReplacement(
+              MaterialPageRoute(builder: (_) => const LoginScreen()),
+            );
+          },
+          icon: const Icon(Icons.logout_rounded, color: AppColors.badgeRed, size: 18),
+          label: const Text('Keluar dari Akun (Logout)', style: TextStyle(color: AppColors.badgeRed, fontWeight: FontWeight.bold)),
+        ),
+      ),
+      const SizedBox(height: 20),
+    ]);
+  }
+
+  Widget _buildDayPill(String day, int date, int weekday) {
+    final isSelected = _selectedWeekday == weekday;
+    return InkWell(
+      onTap: () => setState(() => _selectedWeekday = weekday),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Text(day, style: TextStyle(fontSize: 10, color: isSelected ? Colors.white70 : AppColors.textGrey)),
+            const SizedBox(height: 4),
+            Text('$date', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : AppColors.textDark)),
+          ],
+        ),
       ),
     );
   }
@@ -791,6 +954,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                           if (!context.mounted) return;
 
                           if (response['success'] == true) {
+                            _loadOverview(); // perbarui riwayat, persentase, dan kuota alpa
                             messenger.showSnackBar(
                               SnackBar(
                                 backgroundColor: AppColors.badgeGreen,
@@ -959,45 +1123,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
-  Widget _buildFilterChip(String label) {
-    final isSelected = _selectedJadwalFilter == label;
-    return InkWell(
-      onTap: () => setState(() => _selectedJadwalFilter = label),
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isSelected ? AppColors.primary : const Color(0xFFE2E8F0)),
-        ),
-        child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : AppColors.textGrey)),
-      ),
-    );
-  }
-
-  Widget _buildDayPill(String day, int date) {
-    final isSelected = _selectedDay == date;
-    return InkWell(
-      onTap: () => setState(() => _selectedDay = date),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Text(day, style: TextStyle(fontSize: 10, color: isSelected ? Colors.white70 : AppColors.textGrey)),
-            const SizedBox(height: 4),
-            Text('$date', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : AppColors.textDark)),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildJadwalItemCard({
     required String code,
     required String title,
@@ -1025,7 +1150,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textDark)),
           const SizedBox(height: 4),
           Text('$time • $room', style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
-          Text(lecturer, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+          if (lecturer.isNotEmpty)
+            Text(lecturer, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
           if (canScan) ...[
             const SizedBox(height: 12),
             SizedBox(
