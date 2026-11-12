@@ -10,6 +10,9 @@ import '../../../courses/domain/entities/course_entity.dart';
 import '../../../courses/domain/usecases/course_usecases.dart';
 import '../../../../core/constants/session_types.dart';
 import '../../../../core/widgets/session_type_filter_bar.dart';
+import '../../../dispensations/data/repositories/dispensation_repository_impl.dart';
+import '../../../dispensations/domain/usecases/dispensation_usecases.dart';
+import '../../../dispensations/presentation/widgets/dispensation_review_sheet.dart';
 import '../../../lecturer_academic/data/repositories/lecturer_academic_repository_impl.dart';
 import '../../../lecturer_academic/domain/entities/lecturer_academic_entities.dart';
 import '../../../lecturer_academic/domain/usecases/get_lecturer_overview.dart';
@@ -34,6 +37,10 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
   bool _isLoadingOverview = true;
   String? _overviewError;
   String _historyFilter = 'semua'; // filter kategori sesi di Riwayat
+
+  final DispensationRepositoryImpl _dispensationRepo = DispensationRepositoryImpl();
+  late final ReviewDispensation _reviewDispensation = ReviewDispensation(_dispensationRepo);
+  late final GetDispensationDocumentUrl _getDocumentUrl = GetDispensationDocumentUrl(_dispensationRepo);
 
   @override
   void initState() {
@@ -320,6 +327,36 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: Text(text, style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
     );
+  }
+
+  // Dosen menyetujui / menolak pengajuan izin dan sakit mahasiswa
+  Future<void> _openDispensationReview(LecturerOverview o) async {
+    final lecturerId = widget.user?.id;
+    if (lecturerId == null) {
+      _showMessage('Data login tidak ditemukan. Silakan login ulang.');
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => DispensationReviewSheet(
+        items: o.pendingDispensations,
+        onReview: (id, approve, note) => _reviewDispensation(
+          id: id,
+          approve: approve,
+          reviewerId: lecturerId,
+          note: note,
+        ),
+        getDocumentUrl: _getDocumentUrl.call,
+      ),
+    );
+
+    if (mounted) _loadOverview();
   }
 
   // Kembali ke mode proyektor untuk sesi yang masih aktif
@@ -693,6 +730,56 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
               ),
             ),
           ],
+        ),
+      ),
+      const SizedBox(height: 16),
+
+      // Verifikasi Dispensasi (izin / sakit) mahasiswa
+      InkWell(
+        onTap: () => _openDispensationReview(o),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(12)),
+                child: const Icon(Icons.assignment_turned_in_outlined, color: AppColors.badgeOrange, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Verifikasi Dispensasi', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+                    const SizedBox(height: 2),
+                    Text(
+                      o.pendingDispensations.isEmpty
+                          ? 'Tidak ada pengajuan yang menunggu'
+                          : '${o.pendingDispensations.length} pengajuan izin / sakit menunggu keputusan',
+                      style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
+                    ),
+                  ],
+                ),
+              ),
+              if (o.pendingDispensations.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  decoration: BoxDecoration(color: AppColors.badgeOrange, borderRadius: BorderRadius.circular(10)),
+                  child: Text(
+                    '${o.pendingDispensations.length}',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.textGrey),
+            ],
+          ),
         ),
       ),
       const SizedBox(height: 20),

@@ -1,13 +1,21 @@
 import '../../../courses/data/models/course_model.dart';
 import '../../../courses/domain/entities/course_entity.dart';
+import '../../../dispensations/data/repositories/dispensation_repository_impl.dart';
+import '../../../dispensations/domain/entities/dispensation_entity.dart';
+import '../../../dispensations/domain/repositories/dispensation_repository.dart';
 import '../../domain/entities/lecturer_academic_entities.dart';
 import '../../domain/repositories/lecturer_academic_repository.dart';
 import '../datasources/lecturer_academic_remote_datasource.dart';
 
 class LecturerAcademicRepositoryImpl implements LecturerAcademicRepository {
   final LecturerAcademicRemoteDataSource _remote;
-  LecturerAcademicRepositoryImpl([LecturerAcademicRemoteDataSource? remote])
-      : _remote = remote ?? LecturerAcademicRemoteDataSource();
+  final DispensationRepository _dispensations;
+
+  LecturerAcademicRepositoryImpl([
+    LecturerAcademicRemoteDataSource? remote,
+    DispensationRepository? dispensations,
+  ])  : _remote = remote ?? LecturerAcademicRemoteDataSource(),
+        _dispensations = dispensations ?? DispensationRepositoryImpl();
 
   @override
   Future<LecturerOverview> getOverview(String lecturerId) async {
@@ -34,7 +42,22 @@ class LecturerAcademicRepositoryImpl implements LecturerAcademicRepository {
       studentCountByCourse[course.id] = count;
     }
 
-    final sessionRows = await _remote.fetchSessions(courses.map((c) => c.id).toList());
+    final courseIds = courses.map((c) => c.id).toList();
+    final sessionRows = await _remote.fetchSessions(courseIds);
+
+    // Dispensasi: bila tabel belum ada / gagal dimuat, dashboard tetap jalan.
+    var approved = <DispensationEntity>[];
+    var pending = <DispensationEntity>[];
+    try {
+      approved = await _dispensations.getByCourses(courseIds, status: 'approved');
+      pending = await _dispensations.getByCourses(courseIds, status: 'pending');
+    } catch (_) {}
+
+    // Mahasiswa yang dispensasinya disetujui: kunci "matkul|tanggal" -> id mahasiswa
+    final approvedByDay = <String, Set<String>>{};
+    for (final d in approved) {
+      approvedByDay.putIfAbsent(_dayKey(d.courseId, d.absenceDate), () => <String>{}).add(d.studentId);
+    }
 
     // Nomor pertemuan: urut waktu per mata kuliah
     final byCourse = <String, List<Map<String, dynamic>>>{};
@@ -66,18 +89,36 @@ class LecturerAcademicRepositoryImpl implements LecturerAcademicRepository {
       final id = s['id'].toString();
 
       var present = 0, excused = 0;
+      final presentIds = <String>{};
+      final excusedIds = <String>{};
       final logs = s['attendance_logs'];
       if (logs is List) {
         for (final l in logs) {
           if (l is! Map<String, dynamic>) continue;
+          final studentId = l['student_id']?.toString();
           switch ((l['status'] ?? '').toString().toLowerCase()) {
             case 'hadir':
               present++;
+              if (studentId != null) presentIds.add(studentId);
               break;
             case 'izin':
             case 'sakit':
               excused++;
+              if (studentId != null) excusedIds.add(studentId);
               break;
+          }
+        }
+      }
+
+      // Dispensasi disetujui untuk tanggal sesi dihitung izin (hanya sesi yang sudah ditutup)
+      if (!isActive) {
+        final sessionTime = _sessionTime(s);
+        final ids = sessionTime == null ? null : approvedByDay[_dayKey(cid, sessionTime)];
+        if (ids != null) {
+          for (final studentId in ids) {
+            if (!presentIds.contains(studentId) && !excusedIds.contains(studentId)) {
+              excused++;
+            }
           }
         }
       }
@@ -135,8 +176,12 @@ class LecturerAcademicRepositoryImpl implements LecturerAcademicRepository {
       studentCountByCourse: studentCountByCourse,
       sessions: sessions,
       totalStudents: allStudents.length,
+      pendingDispensations: pending,
     );
   }
+
+  static String _dayKey(String courseId, DateTime d) =>
+      '$courseId|${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   static DateTime? _sessionTime(Map<String, dynamic> s) {
     final raw = s['started_at'] ?? s['created_at'];

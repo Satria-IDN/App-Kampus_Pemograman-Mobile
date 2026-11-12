@@ -28,7 +28,7 @@ class LecturerAcademicRemoteDataSource {
         .from('class_sessions')
         .select(
           'id, course_id, course_name, room_name, session_type, is_active, '
-          'started_at, created_at, attendance_logs(status)',
+          'started_at, created_at, attendance_logs(student_id, status)',
         )
         .inFilter('course_id', courseIds)
         .order('created_at', ascending: false);

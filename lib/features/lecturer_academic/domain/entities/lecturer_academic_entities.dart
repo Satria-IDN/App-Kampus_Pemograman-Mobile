@@ -1,4 +1,5 @@
 import '../../../courses/domain/entities/course_entity.dart';
+import '../../../dispensations/domain/entities/dispensation_entity.dart';
 
 /// Satu baris jadwal mengajar mingguan.
 class LecturerScheduleItem {
@@ -73,6 +74,7 @@ class LecturerOverview {
   final Map<String, int> studentCountByCourse;
   final List<LecturerSessionRecord> sessions; // terbaru dulu
   final int totalStudents; // jumlah mahasiswa unik
+  final List<DispensationEntity> pendingDispensations; // menunggu keputusan dosen
 
   const LecturerOverview({
     required this.schedules,
@@ -80,6 +82,7 @@ class LecturerOverview {
     required this.studentCountByCourse,
     required this.sessions,
     required this.totalStudents,
+    this.pendingDispensations = const [],
   });
 
   List<LecturerSessionRecord> get activeSessions =>

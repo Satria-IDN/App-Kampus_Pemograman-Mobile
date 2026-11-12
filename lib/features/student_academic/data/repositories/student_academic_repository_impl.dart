@@ -1,11 +1,19 @@
+import '../../../dispensations/data/repositories/dispensation_repository_impl.dart';
+import '../../../dispensations/domain/entities/dispensation_entity.dart';
+import '../../../dispensations/domain/repositories/dispensation_repository.dart';
 import '../../domain/entities/student_academic_entities.dart';
 import '../../domain/repositories/student_academic_repository.dart';
 import '../datasources/student_academic_remote_datasource.dart';
 
 class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
   final StudentAcademicRemoteDataSource _remote;
-  StudentAcademicRepositoryImpl([StudentAcademicRemoteDataSource? remote])
-      : _remote = remote ?? StudentAcademicRemoteDataSource();
+  final DispensationRepository _dispensations;
+
+  StudentAcademicRepositoryImpl([
+    StudentAcademicRemoteDataSource? remote,
+    DispensationRepository? dispensations,
+  ])  : _remote = remote ?? StudentAcademicRemoteDataSource(),
+        _dispensations = dispensations ?? DispensationRepositoryImpl();
 
   @override
   Future<StudentOverview> getOverview(String studentId) async {
@@ -25,6 +33,18 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
     ]);
     final sessions = results[0];
     final attendanceRows = results[1];
+
+    // Dispensasi: bila tabel belum ada / gagal dimuat, dashboard tetap jalan.
+    var dispensations = <DispensationEntity>[];
+    try {
+      dispensations = await _dispensations.getForStudent(studentId);
+    } catch (_) {}
+
+    // Tanggal dispensasi yang disetujui: kunci "matkul|tanggal" -> Izin / Sakit
+    final approvedExcuse = <String, String>{
+      for (final d in dispensations.where((d) => d.isApproved))
+        _dayKey(d.courseId, d.absenceDate): d.typeLabel,
+    };
 
     final attendanceBySession = <String, Map<String, dynamic>>{
       for (final a in attendanceRows)
@@ -60,13 +80,21 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
               alpa++;
           }
         } else if (!isActive) {
+          // Sesi sudah ditutup dan tidak ada presensi: alpa, kecuali ada
+          // dispensasi disetujui untuk matkul dan tanggal sesi tersebut.
+          final sessionTime = _parseTime(s['started_at'] ?? s['created_at']);
+          final excuse = sessionTime == null ? null : approvedExcuse[_dayKey(id, sessionTime)];
           meetings++;
-          alpa++;
+          if (excuse != null) {
+            excused++;
+          } else {
+            alpa++;
+          }
           alpaRecords.add(AttendanceRecord(
             courseName: (s['course_name'] ?? c['course_name'] ?? '-').toString(),
             roomName: s['room_name']?.toString(),
-            time: _parseTime(s['started_at'] ?? s['created_at']),
-            status: 'Alpa',
+            time: sessionTime,
+            status: excuse ?? 'Alpa',
             sessionType: _normalizeType(s['session_type']?.toString()),
           ));
         }
@@ -157,8 +185,12 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
       schedules: schedules,
       activeSessions: activeSessions,
       history: history,
+      dispensations: dispensations,
     );
   }
+
+  static String _dayKey(String courseId, DateTime d) =>
+      '$courseId|${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   static String _normalizeStatus(String? raw) {
     switch ((raw ?? '').toLowerCase()) {

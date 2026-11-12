@@ -1,3 +1,5 @@
+import '../../../dispensations/domain/entities/dispensation_entity.dart';
+
 /// Ringkasan kehadiran satu mata kuliah untuk seorang mahasiswa (FR-08).
 class CourseAttendanceSummary {
   /// PRD: batas toleransi maksimal 3 kali alpa.
@@ -113,12 +115,14 @@ class StudentOverview {
   final List<ScheduleItem> schedules;
   final List<ActiveSessionInfo> activeSessions;
   final List<AttendanceRecord> history;
+  final List<DispensationEntity> dispensations;
 
   const StudentOverview({
     required this.courses,
     required this.schedules,
     required this.activeSessions,
     required this.history,
+    this.dispensations = const [],
   });
 
   int get totalSks => courses.fold(0, (sum, c) => sum + c.sks);

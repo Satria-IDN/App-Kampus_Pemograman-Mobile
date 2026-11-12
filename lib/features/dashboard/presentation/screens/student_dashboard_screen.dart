@@ -11,6 +11,10 @@ import 'dart:convert';
 import '../../../../core/services/attendance_service.dart';
 import '../../../../core/constants/session_types.dart';
 import '../../../../core/widgets/session_type_filter_bar.dart';
+import '../../../dispensations/data/repositories/dispensation_repository_impl.dart';
+import '../../../dispensations/domain/entities/dispensation_entity.dart';
+import '../../../dispensations/domain/usecases/dispensation_usecases.dart';
+import '../../../dispensations/presentation/widgets/dispensation_form_sheet.dart';
 import '../../../student_academic/data/repositories/student_academic_repository_impl.dart';
 import '../../../student_academic/domain/entities/student_academic_entities.dart';
 import '../../../student_academic/domain/usecases/get_student_overview.dart';
@@ -28,6 +32,9 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   int _currentNavIndex = 0; // 0: Beranda, 1: Jadwal, 2: Riwayat, 3: Profil
   late int _selectedWeekday = DateTime.now().weekday; // 1 = Senin ... 7 = Minggu
   String _historyFilter = 'semua'; // filter kategori sesi di Riwayat
+
+  final DispensationRepositoryImpl _dispensationRepo = DispensationRepositoryImpl();
+  late final SubmitDispensation _submitDispensation = SubmitDispensation(_dispensationRepo);
 
   final StudentAcademicRepositoryImpl _academicRepo = StudentAcademicRepositoryImpl();
   late final GetStudentOverview _getOverview = GetStudentOverview(_academicRepo);
@@ -532,10 +539,10 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             child: _buildQuickActionCard(
               icon: Icons.assignment_outlined,
               title: 'Izin / Sakit',
-              subtitle: 'Upload Dokumen',
+              subtitle: 'Ajukan ke Dosen',
               iconBg: const Color(0xFFFFF7ED),
               iconColor: AppColors.badgeOrange,
-              onTap: () => _showDispensasiDialog(),
+              onTap: () => _openDispensationForm(),
             ),
           ),
           const SizedBox(width: 12),
@@ -684,6 +691,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       const SizedBox(height: 4),
       const Text('Log kehadiran terverifikasi QR dinamis & GPS', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
       const SizedBox(height: 12),
+      ..._dispensationSection(o),
       SessionTypeFilterBar(
         selected: _historyFilter,
         onChanged: (v) => setState(() => _historyFilter = v),
@@ -1063,25 +1071,105 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
-  void _showDispensasiDialog() {
-    showDialog(
+  // Pengajuan izin / sakit ke dosen pengampu (nyata, tersimpan di Supabase)
+  Future<void> _openDispensationForm() async {
+    final o = _overview;
+    final studentId = widget.user?.id;
+    if (o == null || studentId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Data akademik belum termuat. Coba lagi sebentar.')),
+      );
+      return;
+    }
+    if (o.courses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Belum ada mata kuliah (KRS) untuk akun ini.')),
+      );
+      return;
+    }
+
+    final sent = await showModalBottomSheet<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Pengajuan Dispensasi', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        content: const Text(
-          'Silakan unggah surat dokter atau surat tugas resmi sebelum 1x24 jam setelah sesi perkuliahan berakhir.',
-          style: TextStyle(fontSize: 13, color: AppColors.textGrey),
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => DispensationFormSheet(
+        studentId: studentId,
+        courses: o.courses
+            .map((c) => DispensationCourseOption(id: c.courseId, label: '${c.code} - ${c.name}'))
+            .toList(),
+        onSubmit: _submitDispensation.call,
+      ),
+    );
+
+    if (sent == true) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.badgeGreen,
+          content: Text('Pengajuan terkirim ke dosen pengampu.'),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dokumen izin berhasil dikirim ke Dosen')));
-            },
-            child: const Text('Pilih Berkas', style: TextStyle(color: Colors.white)),
+      );
+      _loadOverview();
+    }
+  }
+
+  List<Widget> _dispensationSection(StudentOverview? o) {
+    if (o == null || o.dispensations.isEmpty) return const [];
+    return [
+      const Text(
+        'Pengajuan Izin / Sakit',
+        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark),
+      ),
+      const SizedBox(height: 8),
+      ...o.dispensations.take(5).expand((d) => [_dispensationTile(d), const SizedBox(height: 8)]),
+      const SizedBox(height: 8),
+    ];
+  }
+
+  Widget _dispensationTile(DispensationEntity d) {
+    final Color color = d.isApproved
+        ? AppColors.badgeGreen
+        : (d.isRejected ? AppColors.badgeRed : AppColors.badgeOrange);
+    final date =
+        '${d.absenceDate.day.toString().padLeft(2, '0')} ${_shortMonthNames[d.absenceDate.month - 1]} ${d.absenceDate.year}';
+    final note = d.reviewerNote;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${d.courseCode} • ${d.typeLabel}',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                ),
+                const SizedBox(height: 2),
+                Text('Tidak hadir: $date', style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                if (note != null && note.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text('Catatan dosen: $note', style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                ],
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              d.statusLabel,
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color),
+            ),
           ),
         ],
       ),
