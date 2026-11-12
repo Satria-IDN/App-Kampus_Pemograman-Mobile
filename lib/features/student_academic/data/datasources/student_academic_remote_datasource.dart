@@ -11,7 +11,7 @@ class StudentAcademicRemoteDataSource {
     final rows = await _db
         .from('enrollments')
         .select(
-          'courses(id, course_code, course_name, sks, profiles(name), '
+          'courses(id, course_code, course_name, sks, profiles!courses_lecturer_id_fkey(name), '
           'rooms(room_name), course_schedules(day_of_week, start_time, end_time))',
         )
         .eq('student_id', studentId);
