@@ -30,4 +30,72 @@ class CourseRemoteDataSource {
       throw e.message;
     }
   }
+
+  // --- Manajemen master matkul (admin) ---
+  Future<List<Map<String, dynamic>>> fetchAdminCourses() async {
+    final rows = await _db
+        .from('courses')
+        .select(
+          'id, course_code, course_name, sks, '
+          'profiles!courses_lecturer_id_fkey(name), '
+          'rooms(room_name), '
+          'course_schedules(day_of_week, start_time, end_time)',
+        )
+        .order('course_code');
+    return List<Map<String, dynamic>>.from(rows);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchLecturers() async {
+    final rows = await _db
+        .from('profiles')
+        .select('id, identifier_id, name')
+        .eq('role', 'dosen')
+        .order('name');
+    return List<Map<String, dynamic>>.from(rows);
+  }
+
+  Future<void> createCourse({
+    required String code,
+    required String name,
+    required int sks,
+    required String lecturerId,
+    required List<Map<String, dynamic>> schedules,
+  }) async {
+    try {
+      final inserted = await _db
+          .from('courses')
+          .insert({
+            'course_code': code,
+            'course_name': name,
+            'sks': sks,
+            'lecturer_id': lecturerId,
+          })
+          .select('id')
+          .single();
+      final courseId = inserted['id'] as String;
+
+      if (schedules.isNotEmpty) {
+        try {
+          await _db.from('course_schedules').insert(
+                schedules.map((s) => {...s, 'course_id': courseId}).toList(),
+              );
+        } on PostgrestException {
+          // Batalkan matkul agar tidak tersisa data setengah jadi
+          await _db.from('courses').delete().eq('id', courseId);
+          rethrow;
+        }
+      }
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') throw 'Kode mata kuliah atau jadwal sudah ada.';
+      throw e.message;
+    }
+  }
+
+  Future<void> deleteCourse(String courseId) async {
+    try {
+      await _db.from('courses').delete().eq('id', courseId);
+    } on PostgrestException catch (e) {
+      throw e.message;
+    }
+  }
 }

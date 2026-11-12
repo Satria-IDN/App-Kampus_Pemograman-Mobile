@@ -67,6 +67,7 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
             roomName: s['room_name']?.toString(),
             time: _parseTime(s['started_at'] ?? s['created_at']),
             status: 'Alpa',
+            sessionType: _normalizeType(s['session_type']?.toString()),
           ));
         }
       }
@@ -135,6 +136,9 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
         time: _parseTime(a['scanned_at']),
         status: _normalizeStatus(a['status']?.toString()),
         distance: (a['verified_distance'] as num?)?.toDouble(),
+        sessionType: cs is Map<String, dynamic>
+            ? _normalizeType(cs['session_type']?.toString())
+            : 'reguler',
       ));
     }
     history.addAll(alpaRecords);
@@ -166,6 +170,19 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
         return 'Sakit';
       default:
         return 'Alpa';
+    }
+  }
+
+  /// Menyamakan nilai lama ('Reguler', 'Tamu') dengan nilai PRD.
+  static String _normalizeType(String? raw) {
+    switch ((raw ?? '').toLowerCase()) {
+      case 'workshop':
+        return 'workshop';
+      case 'kuliah_tamu':
+      case 'tamu':
+        return 'kuliah_tamu';
+      default:
+        return 'reguler';
     }
   }
 

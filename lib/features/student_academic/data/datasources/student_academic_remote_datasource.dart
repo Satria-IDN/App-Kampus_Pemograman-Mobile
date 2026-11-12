@@ -23,7 +23,7 @@ class StudentAcademicRemoteDataSource {
     if (courseIds.isEmpty) return [];
     final rows = await _db
         .from('class_sessions')
-        .select('id, course_id, course_code, course_name, room_name, is_active, started_at, created_at')
+        .select('id, course_id, course_code, course_name, room_name, session_type, is_active, started_at, created_at')
         .inFilter('course_id', courseIds)
         .order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(rows);
@@ -33,7 +33,7 @@ class StudentAcademicRemoteDataSource {
   Future<List<Map<String, dynamic>>> fetchAttendance(String studentId) async {
     final rows = await _db
         .from('attendance_logs')
-        .select('session_id, status, scanned_at, verified_distance, class_sessions(course_name, room_name)')
+        .select('session_id, status, scanned_at, verified_distance, class_sessions(course_name, room_name, session_type)')
         .eq('student_id', studentId)
         .order('scanned_at', ascending: false);
     return List<Map<String, dynamic>>.from(rows);

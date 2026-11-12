@@ -5,6 +5,8 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 import '../../../rooms/presentation/widgets/room_management_panel.dart';
+import '../../../courses/presentation/widgets/course_management_panel.dart';
+import '../../../activity_log/presentation/widgets/activity_log_panel.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   final UserModel? user;
@@ -24,6 +26,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   // Kunci untuk membuka form ruangan dari tombol + di bawah
   final GlobalKey<RoomManagementPanelState> _roomPanelKey = GlobalKey<RoomManagementPanelState>();
 
+  // Statistik ruangan (nyata, dari tabel rooms)
+  int _roomsActive = 0;
+  int _roomsTotal = 0;
+
   // State Data Pengguna dari Supabase
   List<Map<String, dynamic>> _userProfiles = [];
   bool _isLoadingProfiles = false;
@@ -32,6 +38,22 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   void initState() {
     super.initState();
     _fetchUserProfiles();
+    _fetchRoomStats();
+  }
+
+  // Menghitung ruangan aktif untuk kartu statistik
+  Future<void> _fetchRoomStats() async {
+    try {
+      final rows = await _supabase.from('rooms').select('is_active');
+      final list = List<Map<String, dynamic>>.from(rows);
+      if (!mounted) return;
+      setState(() {
+        _roomsTotal = list.length;
+        _roomsActive = list.where((r) => r['is_active'] == true).length;
+      });
+    } catch (_) {
+      // Statistik opsional; kegagalan tidak mengganggu fitur lain.
+    }
   }
 
   // Mengambil daftar profil dari Supabase
@@ -144,7 +166,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Text(
-                  'Super Admin',
+                  'Administrator',
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
                 ),
               ),
@@ -170,8 +192,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 Container(width: 1, height: 36, color: const Color(0xFFF1F5F9)),
                 Expanded(
                   child: _buildStatTile(
-                    count: '100%',
-                    label: 'Geofence Aktif',
+                    count: '$_roomsActive/$_roomsTotal',
+                    label: 'Ruangan Aktif',
                     accentColor: AppColors.badgeGreen,
                   ),
                 ),
@@ -208,7 +230,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           const SizedBox(height: 16),
 
           // Kelola titik GPS ruangan & penetapan ruangan per mata kuliah (data nyata)
-          RoomManagementPanel(key: _roomPanelKey),
+          RoomManagementPanel(key: _roomPanelKey, onChanged: _fetchRoomStats),
           const SizedBox(height: 20),
         ],
       ),
@@ -813,35 +835,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   // TAB 1: MASTER DATA MATKUL
   // ==========================================
   Widget _buildTabMasterMatkul() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Master Kurikulum & Matkul', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline_rounded, color: AppColors.primary),
-                onPressed: () => _showAddCourseDialog(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          const Text('Total 142 mata kuliah aktif terintegrasi SIAKAD', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-          const SizedBox(height: 14),
-
-          _buildCourseMasterTile('IF3201', 'Pemrograman Mobile', '3 SKS • Semester 5', 'Prof. Handoko, M.Kom', 'Lab 301'),
-          const SizedBox(height: 10),
-          _buildCourseMasterTile('IF3204', 'Basis Data Terdistribusi', '3 SKS • Semester 5', 'Prof. Handoko, Ph.D', 'Ruang 401'),
-          const SizedBox(height: 10),
-          _buildCourseMasterTile('IF2102', 'Algoritma & Struktur Data', '3 SKS • Semester 3', 'Dr. Budi Santoso, M.Kom', 'Ruang 104'),
-          const SizedBox(height: 10),
-          _buildCourseMasterTile('IF3105', 'Kecerdasan Buatan & ML', '3 SKS • Semester 5', 'Dr. Rina Maharani, S.T.', 'Auditorium'),
-          const SizedBox(height: 20),
-        ],
-      ),
+    return const SingleChildScrollView(
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: CourseManagementPanel(),
     );
   }
 
@@ -849,24 +845,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   // TAB 2: LOG AUDIT & SINKRONISASI
   // ==========================================
   Widget _buildTabLogAudit() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+    return const SingleChildScrollView(
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Log Audit & Keamanan Sistem', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-          const SizedBox(height: 4),
-          const Text('Catatan perubahan geofence, presensi darurat, dan sesi', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-          const SizedBox(height: 16),
-
-          _buildAuditTile('Sinkronisasi Geofence', 'Radius Lab 301 diperbarui ke 50m oleh Super Admin', '26 Okt 2026 • 10:15 WIB', AppColors.badgeGreen),
-          const SizedBox(height: 10),
-          _buildAuditTile('Presensi Dosen Dibuka', 'Sesi Pemrograman Mobile dimulai di Lab 301', '26 Okt 2026 • 08:00 WIB', AppColors.primary),
-          const SizedBox(height: 10),
-          _buildAuditTile('Anomali Geofence Terdeteksi', 'Percobaan presensi di luar radius (NIM 20240801048)', '26 Okt 2026 • 08:04 WIB', AppColors.badgeRed),
-          const SizedBox(height: 10),
-          _buildAuditTile('Kalibrasi Koordinat', 'GPS Gedung B diperbarui (+0.000012 lat)', '25 Okt 2026 • 16:20 WIB', AppColors.badgeOrange),
-          const SizedBox(height: 20),
+          Text(
+            'Log Aktivitas Sistem',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textDark),
+          ),
+          SizedBox(height: 4),
+          ActivityLogPanel(),
         ],
       ),
     );
@@ -895,12 +884,21 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text('Super Administrator', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                      SizedBox(height: 2),
-                      Text('ID: ADM001 • Hak Akses Penuh', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-                      SizedBox(height: 2),
-                      Text('Pusat Teknologi Informasi Kampus', style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600)),
+                    children: [
+                      Text(
+                        widget.user?.name ?? 'Administrator',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'ID: ${widget.user?.identifierId ?? '-'} • Hak Akses Penuh',
+                        style: const TextStyle(fontSize: 12, color: AppColors.textGrey),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Administrator Sistem CampusPulse',
+                        style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600),
+                      ),
                     ],
                   ),
                 ),
@@ -918,17 +916,18 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               children: [
                 ListTile(
                   leading: const Icon(Icons.cloud_done_rounded, color: AppColors.badgeGreen),
-                  title: const Text('Status Supabase & SIAKAD', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  subtitle: const Text('Tersambung (Latensi 24ms)', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                  title: const Text('Basis Data Supabase', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    '${_userProfiles.length} akun • $_roomsTotal ruangan terdaftar',
+                    style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
+                  ),
                   trailing: const Icon(Icons.check_circle_rounded, color: AppColors.badgeGreen, size: 18),
                 ),
                 const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                ListTile(
-                  leading: const Icon(Icons.lock_reset_rounded, color: AppColors.primary),
-                  title: const Text('Kunci Enkripsi Master RSA-2048', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  subtitle: const Text('Valid hingga 2028', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                  trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textGrey),
-                  onTap: () {},
+                const ListTile(
+                  leading: Icon(Icons.lock_rounded, color: AppColors.primary),
+                  title: Text('Keamanan Kata Sandi', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  subtitle: Text('Kata sandi disimpan sebagai hash bcrypt', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
                 ),
               ],
             ),
@@ -956,28 +955,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             ),
           ),
           const SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
-
-  void _showAddCourseDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Tambah Mata Kuliah SIAKAD', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-        content: const Text('Koneksi sinkronisasi SIAKAD siap menerima kurikulum baru.', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Form pembuatan kurikulum dibuka')));
-            },
-            child: const Text('Lanjutkan', style: TextStyle(color: Colors.white)),
-          ),
         ],
       ),
     );
@@ -1051,64 +1028,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildCourseMasterTile(String code, String name, String sks, String lecturer, String room) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(code, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary)),
-              const SizedBox(height: 2),
-              Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-              const SizedBox(height: 2),
-              Text('$sks • $lecturer', style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-            ],
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
-            child: Text(room, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAuditTile(String title, String detail, String time, Color tagColor) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(top: 2),
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: tagColor, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                const SizedBox(height: 2),
-                Text(detail, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                const SizedBox(height: 4),
-                Text(time, style: const TextStyle(fontSize: 9, color: Color(0xFF94A3B8))),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

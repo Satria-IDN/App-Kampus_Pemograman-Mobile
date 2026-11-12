@@ -95,6 +95,7 @@ class AttendanceRecord {
   final DateTime? time;
   final String status;
   final double? distance;
+  final String sessionType; // reguler | workshop | kuliah_tamu
 
   const AttendanceRecord({
     required this.courseName,
@@ -102,6 +103,7 @@ class AttendanceRecord {
     this.time,
     required this.status,
     this.distance,
+    this.sessionType = 'reguler',
   });
 }
 

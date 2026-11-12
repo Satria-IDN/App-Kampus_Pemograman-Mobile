@@ -9,6 +9,8 @@ import '../../../../core/services/qr_token_service.dart';
 import '../../../../core/services/class_session_service.dart';
 import 'dart:convert';
 import '../../../../core/services/attendance_service.dart';
+import '../../../../core/constants/session_types.dart';
+import '../../../../core/widgets/session_type_filter_bar.dart';
 import '../../../student_academic/data/repositories/student_academic_repository_impl.dart';
 import '../../../student_academic/domain/entities/student_academic_entities.dart';
 import '../../../student_academic/domain/usecases/get_student_overview.dart';
@@ -25,6 +27,7 @@ class StudentDashboardScreen extends StatefulWidget {
 class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   int _currentNavIndex = 0; // 0: Beranda, 1: Jadwal, 2: Riwayat, 3: Profil
   late int _selectedWeekday = DateTime.now().weekday; // 1 = Senin ... 7 = Minggu
+  String _historyFilter = 'semua'; // filter kategori sesi di Riwayat
 
   final StudentAcademicRepositoryImpl _academicRepo = StudentAcademicRepositoryImpl();
   late final GetStudentOverview _getOverview = GetStudentOverview(_academicRepo);
@@ -650,18 +653,29 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     final List<Widget> body = [];
     if (o == null) {
       body.add(_overviewPlaceholder());
-    } else if (o.history.isEmpty) {
-      body.add(_emptyCard('Belum ada riwayat presensi.'));
     } else {
-      for (final r in o.history) {
-        body.add(_buildHistoryItem(
-          r.courseName,
-          _formatDateTime(r.time),
-          r.roomName ?? '-',
-          _historyLabel(r),
-          _historyColor(r.status),
-        ));
-        body.add(const SizedBox(height: 10));
+      final records = _historyFilter == 'semua'
+          ? o.history
+          : o.history.where((r) => r.sessionType == _historyFilter).toList();
+
+      if (records.isEmpty) {
+        body.add(_emptyCard(_historyFilter == 'semua'
+            ? 'Belum ada riwayat presensi.'
+            : 'Belum ada riwayat untuk kategori ini.'));
+      } else {
+        for (final r in records) {
+          final roomText = r.sessionType == 'reguler'
+              ? (r.roomName ?? '-')
+              : '${r.roomName ?? '-'} • ${SessionTypes.label(r.sessionType)}';
+          body.add(_buildHistoryItem(
+            r.courseName,
+            _formatDateTime(r.time),
+            roomText,
+            _historyLabel(r),
+            _historyColor(r.status),
+          ));
+          body.add(const SizedBox(height: 10));
+        }
       }
     }
 
@@ -669,7 +683,12 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       const Text('Riwayat Presensi', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textDark)),
       const SizedBox(height: 4),
       const Text('Log kehadiran terverifikasi QR dinamis & GPS', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-      const SizedBox(height: 16),
+      const SizedBox(height: 12),
+      SessionTypeFilterBar(
+        selected: _historyFilter,
+        onChanged: (v) => setState(() => _historyFilter = v),
+      ),
+      const SizedBox(height: 14),
       ...body,
       const SizedBox(height: 10),
     ]);

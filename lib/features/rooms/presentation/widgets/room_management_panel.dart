@@ -11,7 +11,10 @@ import '../../domain/usecases/room_usecases.dart';
 /// Panel admin: kelola titik GPS ruangan (kunci koordinat) dan tetapkan
 /// ruangan untuk tiap mata kuliah. Semua data tersimpan di Supabase.
 class RoomManagementPanel extends StatefulWidget {
-  const RoomManagementPanel({super.key});
+  /// Dipanggil setiap data ruangan selesai dimuat (untuk memperbarui statistik admin).
+  final VoidCallback? onChanged;
+
+  const RoomManagementPanel({super.key, this.onChanged});
 
   @override
   State<RoomManagementPanel> createState() => RoomManagementPanelState();
@@ -52,6 +55,7 @@ class RoomManagementPanelState extends State<RoomManagementPanel> {
         _courses = courses;
         _isLoading = false;
       });
+      widget.onChanged?.call();
     } catch (e) {
       if (!mounted) return;
       setState(() {
