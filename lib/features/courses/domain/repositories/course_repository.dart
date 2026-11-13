@@ -13,4 +13,9 @@ abstract class CourseRepository {
   Future<List<LecturerOption>> getLecturers();
   Future<void> createCourse(NewCourseInput input);
   Future<void> deleteCourse(String courseId);
+
+  // --- KRS: peserta mata kuliah ---
+  Future<List<StudentOption>> getStudents();
+  Future<Set<String>> getEnrolledStudentIds(String courseId);
+  Future<void> saveEnrollments(String courseId, Set<String> studentIds);
 }

@@ -51,6 +51,7 @@ class CourseRepositoryImpl implements CourseRepository {
         lecturerName: lecturer is Map<String, dynamic> ? lecturer['name']?.toString() : null,
         roomName: room is Map<String, dynamic> ? room['room_name']?.toString() : null,
         schedules: schedules,
+        studentCount: r['enrollments'] is List ? (r['enrollments'] as List).length : 0,
       );
     }).toList();
   }
@@ -84,6 +85,26 @@ class CourseRepositoryImpl implements CourseRepository {
 
   @override
   Future<void> deleteCourse(String courseId) => _remote.deleteCourse(courseId);
+
+  @override
+  Future<List<StudentOption>> getStudents() async {
+    final rows = await _remote.fetchStudents();
+    return rows
+        .map<StudentOption>((r) => StudentOption(
+              id: r['id'] as String,
+              identifierId: (r['identifier_id'] ?? '').toString(),
+              name: (r['name'] ?? '').toString(),
+            ))
+        .toList();
+  }
+
+  @override
+  Future<Set<String>> getEnrolledStudentIds(String courseId) =>
+      _remote.fetchEnrolledStudentIds(courseId);
+
+  @override
+  Future<void> saveEnrollments(String courseId, Set<String> studentIds) =>
+      _remote.setEnrollments(courseId, studentIds);
 
   static String _hhmm(dynamic value) {
     final s = (value ?? '').toString();

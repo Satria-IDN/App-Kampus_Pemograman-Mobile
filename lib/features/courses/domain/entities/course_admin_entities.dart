@@ -29,6 +29,7 @@ class AdminCourseEntity {
   final String? lecturerName;
   final String? roomName;
   final List<CourseScheduleEntity> schedules;
+  final int studentCount; // jumlah mahasiswa terdaftar (KRS)
 
   const AdminCourseEntity({
     required this.id,
@@ -38,6 +39,7 @@ class AdminCourseEntity {
     this.lecturerName,
     this.roomName,
     this.schedules = const [],
+    this.studentCount = 0,
   });
 }
 
@@ -67,5 +69,17 @@ class NewCourseInput {
     required this.sks,
     required this.lecturerId,
     this.schedules = const [],
+  });
+}
+
+class StudentOption {
+  final String id;
+  final String identifierId; // NIM
+  final String name;
+
+  const StudentOption({
+    required this.id,
+    required this.identifierId,
+    required this.name,
   });
 }

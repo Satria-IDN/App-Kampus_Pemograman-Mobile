@@ -24,6 +24,9 @@ class CourseManagementPanelState extends State<CourseManagementPanel> {
   late final GetLecturers _getLecturers = GetLecturers(_repo);
   late final CreateCourse _createCourse = CreateCourse(_repo);
   late final DeleteCourse _deleteCourse = DeleteCourse(_repo);
+  late final GetStudents _getStudents = GetStudents(_repo);
+  late final GetEnrolledStudentIds _getEnrolled = GetEnrolledStudentIds(_repo);
+  late final SaveEnrollments _saveEnrollments = SaveEnrollments(_repo);
 
   List<AdminCourseEntity> _courses = [];
   bool _isLoading = true;
@@ -98,6 +101,47 @@ class CourseManagementPanelState extends State<CourseManagementPanel> {
     if (saved == true) {
       if (!mounted) return;
       _toast('Mata kuliah tersimpan.');
+      await _load();
+    }
+  }
+
+  // Kelola peserta (KRS): pilih mahasiswa yang mengambil mata kuliah ini
+  Future<void> _openEnrollment(AdminCourseEntity course) async {
+    List<StudentOption> students;
+    Set<String> enrolled;
+    try {
+      students = await _getStudents();
+      enrolled = await _getEnrolled(course.id);
+    } catch (e) {
+      if (!mounted) return;
+      _toast('Gagal memuat data peserta: $e', error: true);
+      return;
+    }
+    if (!mounted) return;
+
+    if (students.isEmpty) {
+      _toast('Belum ada akun mahasiswa. Tambahkan di menu Kelola Akun.', error: true);
+      return;
+    }
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _EnrollmentSheet(
+        course: course,
+        students: students,
+        initial: enrolled,
+        onSave: (ids) => _saveEnrollments(course.id, ids),
+      ),
+    );
+
+    if (saved == true) {
+      if (!mounted) return;
+      _toast('Peserta ${course.code} diperbarui.');
       await _load();
     }
   }
@@ -236,7 +280,7 @@ class CourseManagementPanelState extends State<CourseManagementPanel> {
                 Text(c.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textDark)),
                 const SizedBox(height: 2),
                 Text(
-                  '${c.sks} SKS • ${c.lecturerName ?? 'Dosen belum diatur'}',
+                  '${c.sks} SKS • ${c.lecturerName ?? 'Dosen belum diatur'} • ${c.studentCount} mahasiswa',
                   style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
                 ),
                 const SizedBox(height: 2),
@@ -257,10 +301,19 @@ class CourseManagementPanelState extends State<CourseManagementPanel> {
               ],
             ),
           ),
-          IconButton(
-            tooltip: 'Hapus',
-            icon: const Icon(Icons.delete_outline_rounded, color: AppColors.badgeRed, size: 20),
-            onPressed: () => _confirmDelete(c),
+          Column(
+            children: [
+              IconButton(
+                tooltip: 'Kelola peserta (KRS)',
+                icon: const Icon(Icons.groups_rounded, color: AppColors.primary, size: 22),
+                onPressed: () => _openEnrollment(c),
+              ),
+              IconButton(
+                tooltip: 'Hapus',
+                icon: const Icon(Icons.delete_outline_rounded, color: AppColors.badgeRed, size: 20),
+                onPressed: () => _confirmDelete(c),
+              ),
+            ],
           ),
         ],
       ),
@@ -556,6 +609,157 @@ class _CourseEditorSheetState extends State<_CourseEditorSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// KELOLA PESERTA (KRS) - BOTTOM SHEET
+// ==========================================
+class _EnrollmentSheet extends StatefulWidget {
+  final AdminCourseEntity course;
+  final List<StudentOption> students;
+  final Set<String> initial;
+  final Future<void> Function(Set<String> studentIds) onSave;
+
+  const _EnrollmentSheet({
+    required this.course,
+    required this.students,
+    required this.initial,
+    required this.onSave,
+  });
+
+  @override
+  State<_EnrollmentSheet> createState() => _EnrollmentSheetState();
+}
+
+class _EnrollmentSheetState extends State<_EnrollmentSheet> {
+  late final Set<String> _selected = {...widget.initial};
+  bool _saving = false;
+  String? _error;
+
+  bool get _allSelected => _selected.length == widget.students.length;
+
+  void _toggleAll() {
+    setState(() {
+      if (_allSelected) {
+        _selected.clear();
+      } else {
+        _selected
+          ..clear()
+          ..addAll(widget.students.map((s) => s.id));
+      }
+    });
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.onSave(_selected);
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.of(context).size.height * 0.85;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 12, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Peserta ${widget.course.code}',
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.textDark),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _saving ? null : _toggleAll,
+                  child: Text(_allSelected ? 'Kosongkan' : 'Pilih semua'),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(
+              '${widget.course.name} • ${_selected.length} dari ${widget.students.length} mahasiswa dipilih',
+              style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
+            ),
+          ),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: widget.students.length,
+              itemBuilder: (context, i) {
+                final st = widget.students[i];
+                return CheckboxListTile(
+                  dense: true,
+                  value: _selected.contains(st.id),
+                  title: Text(st.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  subtitle: Text('NIM ${st.identifierId}', style: const TextStyle(fontSize: 11)),
+                  onChanged: _saving
+                      ? null
+                      : (v) => setState(() {
+                            if (v == true) {
+                              _selected.add(st.id);
+                            } else {
+                              _selected.remove(st.id);
+                            }
+                          }),
+                );
+              },
+            ),
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+              child: Text(_error!, style: const TextStyle(fontSize: 12, color: AppColors.badgeRed)),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            child: SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text(
+                        'Simpan Peserta',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

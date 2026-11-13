@@ -64,3 +64,25 @@ class DeleteCourse {
 
   Future<void> call(String courseId) => _repo.deleteCourse(courseId);
 }
+
+class GetStudents {
+  final CourseRepository _repo;
+  const GetStudents(this._repo);
+
+  Future<List<StudentOption>> call() => _repo.getStudents();
+}
+
+class GetEnrolledStudentIds {
+  final CourseRepository _repo;
+  const GetEnrolledStudentIds(this._repo);
+
+  Future<Set<String>> call(String courseId) => _repo.getEnrolledStudentIds(courseId);
+}
+
+class SaveEnrollments {
+  final CourseRepository _repo;
+  const SaveEnrollments(this._repo);
+
+  Future<void> call(String courseId, Set<String> studentIds) =>
+      _repo.saveEnrollments(courseId, studentIds);
+}

@@ -39,7 +39,8 @@ class CourseRemoteDataSource {
           'id, course_code, course_name, sks, '
           'profiles!courses_lecturer_id_fkey(name), '
           'rooms(room_name), '
-          'course_schedules(day_of_week, start_time, end_time)',
+          'course_schedules(day_of_week, start_time, end_time), '
+          'enrollments(student_id)',
         )
         .order('course_code');
     return List<Map<String, dynamic>>.from(rows);
@@ -94,6 +95,48 @@ class CourseRemoteDataSource {
   Future<void> deleteCourse(String courseId) async {
     try {
       await _db.from('courses').delete().eq('id', courseId);
+    } on PostgrestException catch (e) {
+      throw e.message;
+    }
+  }
+
+  // --- KRS: peserta mata kuliah ---
+  Future<List<Map<String, dynamic>>> fetchStudents() async {
+    final rows = await _db
+        .from('profiles')
+        .select('id, identifier_id, name')
+        .eq('role', 'mahasiswa')
+        .order('name');
+    return List<Map<String, dynamic>>.from(rows);
+  }
+
+  Future<Set<String>> fetchEnrolledStudentIds(String courseId) async {
+    final rows = await _db
+        .from('enrollments')
+        .select('student_id')
+        .eq('course_id', courseId);
+    return rows.map<String>((r) => r['student_id'].toString()).toSet();
+  }
+
+  /// Menyamakan daftar peserta dengan [studentIds]: yang baru ditambah, yang dicabut dihapus.
+  Future<void> setEnrollments(String courseId, Set<String> studentIds) async {
+    try {
+      final current = await fetchEnrolledStudentIds(courseId);
+      final toAdd = studentIds.difference(current);
+      final toRemove = current.difference(studentIds);
+
+      if (toAdd.isNotEmpty) {
+        await _db.from('enrollments').insert(
+              toAdd.map((id) => {'student_id': id, 'course_id': courseId}).toList(),
+            );
+      }
+      if (toRemove.isNotEmpty) {
+        await _db
+            .from('enrollments')
+            .delete()
+            .eq('course_id', courseId)
+            .inFilter('student_id', toRemove.toList());
+      }
     } on PostgrestException catch (e) {
       throw e.message;
     }
