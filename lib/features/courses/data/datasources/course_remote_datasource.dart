@@ -141,4 +141,35 @@ class CourseRemoteDataSource {
       throw e.message;
     }
   }
+
+  /// Mengganti seluruh jadwal mingguan matkul. Jika penyimpanan gagal,
+  /// jadwal lama dikembalikan agar tidak hilang.
+  Future<void> replaceSchedules(String courseId, List<Map<String, dynamic>> schedules) async {
+    try {
+      final old = await _db
+          .from('course_schedules')
+          .select('day_of_week, start_time, end_time')
+          .eq('course_id', courseId);
+
+      await _db.from('course_schedules').delete().eq('course_id', courseId);
+
+      if (schedules.isNotEmpty) {
+        try {
+          await _db.from('course_schedules').insert(
+                schedules.map((s) => {...s, 'course_id': courseId}).toList(),
+              );
+        } on PostgrestException {
+          if (old.isNotEmpty) {
+            await _db.from('course_schedules').insert(
+                  old.map((s) => {...s, 'course_id': courseId}).toList(),
+                );
+          }
+          rethrow;
+        }
+      }
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') throw 'Ada jadwal ganda (hari dan jam mulai yang sama).';
+      throw e.message;
+    }
+  }
 }

@@ -24,6 +24,7 @@ class CourseManagementPanelState extends State<CourseManagementPanel> {
   late final GetLecturers _getLecturers = GetLecturers(_repo);
   late final CreateCourse _createCourse = CreateCourse(_repo);
   late final DeleteCourse _deleteCourse = DeleteCourse(_repo);
+  late final SetCourseSchedules _setSchedules = SetCourseSchedules(_repo);
   late final GetStudents _getStudents = GetStudents(_repo);
   late final GetEnrolledStudentIds _getEnrolled = GetEnrolledStudentIds(_repo);
   late final SaveEnrollments _saveEnrollments = SaveEnrollments(_repo);
@@ -101,6 +102,28 @@ class CourseManagementPanelState extends State<CourseManagementPanel> {
     if (saved == true) {
       if (!mounted) return;
       _toast('Mata kuliah tersimpan.');
+      await _load();
+    }
+  }
+
+  // Atur jadwal mingguan: menentukan hari dan jam sesi boleh dibuka dosen
+  Future<void> _openScheduleEditor(AdminCourseEntity course) async {
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _ScheduleSheet(
+        course: course,
+        onSave: (slots) => _setSchedules(course.id, slots),
+      ),
+    );
+
+    if (saved == true) {
+      if (!mounted) return;
+      _toast('Jadwal ${course.code} diperbarui.');
       await _load();
     }
   }
@@ -304,12 +327,20 @@ class CourseManagementPanelState extends State<CourseManagementPanel> {
           Column(
             children: [
               IconButton(
+                tooltip: 'Atur jadwal',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.schedule_rounded, color: AppColors.primary, size: 21),
+                onPressed: () => _openScheduleEditor(c),
+              ),
+              IconButton(
                 tooltip: 'Kelola peserta (KRS)',
+                visualDensity: VisualDensity.compact,
                 icon: const Icon(Icons.groups_rounded, color: AppColors.primary, size: 22),
                 onPressed: () => _openEnrollment(c),
               ),
               IconButton(
                 tooltip: 'Hapus',
+                visualDensity: VisualDensity.compact,
                 icon: const Icon(Icons.delete_outline_rounded, color: AppColors.badgeRed, size: 20),
                 onPressed: () => _confirmDelete(c),
               ),
@@ -760,6 +791,236 @@ class _EnrollmentSheetState extends State<_EnrollmentSheet> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// ATUR JADWAL MINGGUAN - BOTTOM SHEET
+// ==========================================
+String _fmtTimeOfDay(TimeOfDay t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+TimeOfDay _parseTimeOfDay(String hhmm) {
+  final parts = hhmm.split(':');
+  return TimeOfDay(
+    hour: int.tryParse(parts[0]) ?? 8,
+    minute: parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0,
+  );
+}
+
+class _ScheduleRowEditor extends StatelessWidget {
+  final _ScheduleDraft draft;
+  final VoidCallback onChanged;
+  final VoidCallback onRemove;
+
+  const _ScheduleRowEditor({
+    super.key,
+    required this.draft,
+    required this.onChanged,
+    required this.onRemove,
+  });
+
+  Future<void> _pick(BuildContext context, {required bool isStart}) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: isStart ? draft.start : draft.end,
+    );
+    if (picked == null) return;
+    if (isStart) {
+      draft.start = picked;
+    } else {
+      draft.end = picked;
+    }
+    onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: DropdownButtonFormField<int>(
+              initialValue: draft.dayOfWeek,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: 'Hari',
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+              ),
+              items: List.generate(
+                7,
+                (n) => DropdownMenuItem<int>(value: n + 1, child: Text(_dayNames[n])),
+              ),
+              onChanged: (v) {
+                draft.dayOfWeek = v ?? draft.dayOfWeek;
+                onChanged();
+              },
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            flex: 2,
+            child: OutlinedButton(
+              onPressed: () => _pick(context, isStart: true),
+              child: Text(_fmtTimeOfDay(draft.start), style: const TextStyle(fontSize: 12)),
+            ),
+          ),
+          const Padding(padding: EdgeInsets.symmetric(horizontal: 4), child: Text('-')),
+          Expanded(
+            flex: 2,
+            child: OutlinedButton(
+              onPressed: () => _pick(context, isStart: false),
+              child: Text(_fmtTimeOfDay(draft.end), style: const TextStyle(fontSize: 12)),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.badgeRed),
+            onPressed: onRemove,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScheduleSheet extends StatefulWidget {
+  final AdminCourseEntity course;
+  final Future<void> Function(List<CourseScheduleEntity> slots) onSave;
+
+  const _ScheduleSheet({required this.course, required this.onSave});
+
+  @override
+  State<_ScheduleSheet> createState() => _ScheduleSheetState();
+}
+
+class _ScheduleSheetState extends State<_ScheduleSheet> {
+  late final List<_ScheduleDraft> _drafts = widget.course.schedules
+      .map((s) => _ScheduleDraft(
+            dayOfWeek: s.dayOfWeek,
+            start: _parseTimeOfDay(s.startTime),
+            end: _parseTimeOfDay(s.endTime),
+          ))
+      .toList();
+  bool _saving = false;
+  String? _error;
+
+  void _add() {
+    setState(() {
+      _drafts.add(_ScheduleDraft(
+        dayOfWeek: DateTime.now().weekday,
+        start: const TimeOfDay(hour: 8, minute: 0),
+        end: const TimeOfDay(hour: 10, minute: 0),
+      ));
+    });
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.onSave(_drafts.map((d) => d.toEntity()).toList());
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Jadwal ${widget.course.code}',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.textDark),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              widget.course.name,
+              style: const TextStyle(fontSize: 12, color: AppColors.textGrey),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Dosen hanya bisa membuka sesi pada hari dan jam ini (mulai 15 menit sebelum jam mulai).',
+              style: TextStyle(fontSize: 11, color: AppColors.textGrey),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _saving ? null : _add,
+                icon: const Icon(Icons.add_rounded, size: 16),
+                label: const Text('Tambah jadwal', style: TextStyle(fontSize: 12)),
+              ),
+            ),
+            if (_drafts.isEmpty)
+              const Text(
+                'Belum ada jadwal. Tanpa jadwal, dosen tidak bisa membuka sesi.',
+                style: TextStyle(fontSize: 11, color: AppColors.badgeOrange),
+              ),
+            ..._drafts.map(
+              (d) => _ScheduleRowEditor(
+                key: ObjectKey(d),
+                draft: d,
+                onChanged: () => setState(() {}),
+                onRemove: () => setState(() => _drafts.remove(d)),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(_error!, style: const TextStyle(fontSize: 12, color: AppColors.badgeRed)),
+            ],
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text(
+                        'Simpan Jadwal',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

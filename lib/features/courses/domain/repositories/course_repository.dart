@@ -14,6 +14,9 @@ abstract class CourseRepository {
   Future<void> createCourse(NewCourseInput input);
   Future<void> deleteCourse(String courseId);
 
+  /// Mengganti seluruh jadwal mingguan sebuah mata kuliah.
+  Future<void> setSchedules(String courseId, List<CourseScheduleEntity> schedules);
+
   // --- KRS: peserta mata kuliah ---
   Future<List<StudentOption>> getStudents();
   Future<Set<String>> getEnrolledStudentIds(String courseId);

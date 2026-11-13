@@ -86,3 +86,22 @@ class SaveEnrollments {
   Future<void> call(String courseId, Set<String> studentIds) =>
       _repo.saveEnrollments(courseId, studentIds);
 }
+
+/// Aturan bisnis jadwal: jam selesai setelah jam mulai, tidak ada slot ganda.
+class SetCourseSchedules {
+  final CourseRepository _repo;
+  const SetCourseSchedules(this._repo);
+
+  Future<void> call(String courseId, List<CourseScheduleEntity> schedules) {
+    final seen = <String>{};
+    for (final s in schedules) {
+      if (s.endMinutes <= s.startMinutes) {
+        throw 'Jam selesai harus setelah jam mulai.';
+      }
+      if (!seen.add('${s.dayOfWeek}|${s.startTime}')) {
+        throw 'Ada jadwal ganda (hari dan jam mulai yang sama).';
+      }
+    }
+    return _repo.setSchedules(courseId, schedules);
+  }
+}

@@ -5,9 +5,7 @@ import '../../../auth/data/models/user_model.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 import '../../../../core/services/class_session_service.dart';
 import 'lecturer_qr_projector_screen.dart';
-import '../../../courses/data/repositories/course_repository_impl.dart';
 import '../../../courses/domain/entities/course_entity.dart';
-import '../../../courses/domain/usecases/course_usecases.dart';
 import '../../../../core/constants/session_types.dart';
 import '../../../../core/widgets/session_type_filter_bar.dart';
 import '../../../dispensations/data/repositories/dispensation_repository_impl.dart';
@@ -29,7 +27,6 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
   int _currentNavIndex = 0; // 0: Beranda, 1: Jadwal, 2: Riwayat, 3: Profil
   String _selectedCategory = 'Reguler'; // Reguler, Workshop, Tamu
 
-  final GetLecturerCourses _getLecturerCourses = GetLecturerCourses(CourseRepositoryImpl());
 
   final LecturerAcademicRepositoryImpl _academicRepo = LecturerAcademicRepositoryImpl();
   late final GetLecturerOverview _getOverview = GetLecturerOverview(_academicRepo);
@@ -54,34 +51,48 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
     );
   }
 
-  // Dosen memilih mata kuliah yang diampu; ruangan & titik GPS mengikuti pengaturan admin
+  // Sesi boleh dibuka mulai sekian menit sebelum jam mulai kuliah (sama dengan aturan di database)
+  static const int _openLeadMinutes = 15;
+
+  /// Status buka-sesi sebuah matkul: hanya pada hari dan jam kuliah sesuai jadwal,
+  /// atau jika sesinya masih aktif (boleh dilanjutkan).
+  ({bool canOpen, String reason}) _courseOpenStatus(LecturerOverview o, CourseEntity c) {
+    if (c.room == null) {
+      return (canOpen: false, reason: 'Ruangan belum diatur admin');
+    }
+    if (o.activeSessions.any((s) => s.courseId == c.id)) {
+      return (canOpen: true, reason: 'Sesi sedang aktif');
+    }
+
+    final slots = o.schedules.where((s) => s.course.id == c.id).toList();
+    if (slots.isEmpty) {
+      return (canOpen: false, reason: 'Jadwal belum diatur admin');
+    }
+
+    final now = DateTime.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+    for (final s in slots) {
+      if (s.dayOfWeek == now.weekday &&
+          nowMinutes >= s.startMinutes - _openLeadMinutes &&
+          nowMinutes <= s.endMinutes) {
+        return (canOpen: true, reason: '${s.startTime} - ${s.endTime} WIB');
+      }
+    }
+
+    final text = slots
+        .map((s) => '${_fullDayNames[s.dayOfWeek - 1]} ${s.startTime}-${s.endTime}')
+        .join(', ');
+    return (canOpen: false, reason: 'Di luar jadwal ($text)');
+  }
+
+  // Dosen memilih mata kuliah yang diampu; hanya matkul yang sedang waktunya yang bisa dibuka
   Future<void> _openCoursePicker() async {
-    final lecturerId = widget.user?.id;
-    if (lecturerId == null) {
-      _showMessage('Data login tidak ditemukan. Silakan login ulang.');
+    final o = _overview;
+    if (o == null) {
+      _showMessage('Data perkuliahan belum termuat. Coba lagi sebentar.');
       return;
     }
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
-    List<CourseEntity> courses;
-    try {
-      courses = await _getLecturerCourses(lecturerId);
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.pop(context); // tutup loading
-      _showMessage('Gagal memuat mata kuliah: $e');
-      return;
-    }
-
-    if (!mounted) return;
-    Navigator.pop(context); // tutup loading
-
-    if (courses.isEmpty) {
+    if (o.courses.isEmpty) {
       _showMessage('Belum ada mata kuliah yang diampu akun ini. Hubungi admin.');
       return;
     }
@@ -100,29 +111,38 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                 'Pilih Mata Kuliah',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark),
               ),
+              const SizedBox(height: 2),
+              const Text(
+                'Sesi hanya bisa dibuka pada hari dan jam kuliah sesuai jadwal.',
+                style: TextStyle(fontSize: 11, color: AppColors.textGrey),
+              ),
               const SizedBox(height: 8),
-              ...courses.map((c) {
-                final hasRoom = c.room != null;
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  enabled: hasRoom,
-                  title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(
-                    hasRoom
-                        ? '${c.code} • ${c.room!.name} • radius ${c.room!.radiusMeter} m'
-                        : '${c.code} • Ruangan belum diatur admin',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: hasRoom ? AppColors.textGrey : AppColors.badgeOrange,
-                    ),
-                  ),
-                  trailing: Icon(
-                    hasRoom ? Icons.chevron_right_rounded : Icons.warning_amber_rounded,
-                    color: hasRoom ? AppColors.textGrey : AppColors.badgeOrange,
-                  ),
-                  onTap: hasRoom ? () => Navigator.pop(ctx, c) : null,
-                );
-              }),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: o.courses.map((c) {
+                    final st = _courseOpenStatus(o, c);
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      enabled: st.canOpen,
+                      title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                        '${c.code} • ${c.room?.name ?? 'Tanpa ruangan'}\n${st.reason}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: st.canOpen ? AppColors.textGrey : AppColors.badgeOrange,
+                        ),
+                      ),
+                      isThreeLine: true,
+                      trailing: Icon(
+                        st.canOpen ? Icons.chevron_right_rounded : Icons.lock_clock_rounded,
+                        color: st.canOpen ? AppColors.textGrey : AppColors.badgeOrange,
+                      ),
+                      onTap: st.canOpen ? () => Navigator.pop(ctx, c) : null,
+                    );
+                  }).toList(),
+                ),
+              ),
             ],
           ),
         ),
@@ -374,7 +394,8 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
     if (mounted) _loadOverview();
   }
 
-  /// Status kartu jadwal. Tombol buka sesi hanya untuk kelas hari ini.
+  /// Status kartu jadwal. Tombol buka sesi hanya aktif pada hari dan jam kuliah
+  /// (mulai 15 menit sebelum jam mulai sampai jam selesai).
   ({String text, Color color, bool canOpen}) _classStatus(LecturerScheduleItem s) {
     final now = DateTime.now();
     if (s.dayOfWeek != now.weekday) {
@@ -384,10 +405,13 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
       return (text: 'Sedang Aktif', color: AppColors.badgeGreen, canOpen: true);
     }
     final nowMinutes = now.hour * 60 + now.minute;
-    if (nowMinutes > s.endMinutes) {
-      return (text: 'Selesai Hari Ini', color: AppColors.textGrey, canOpen: true);
+    if (nowMinutes < s.startMinutes - _openLeadMinutes) {
+      return (text: 'Mulai ${s.startTime}', color: AppColors.primary, canOpen: false);
     }
-    return (text: 'Sesi Hari Ini', color: AppColors.primary, canOpen: true);
+    if (nowMinutes > s.endMinutes) {
+      return (text: 'Selesai Hari Ini', color: AppColors.textGrey, canOpen: false);
+    }
+    return (text: 'Bisa Dibuka', color: AppColors.badgeGreen, canOpen: true);
   }
 
   Widget _scheduleTileFor(LecturerScheduleItem s) {
@@ -829,17 +853,17 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
         body.add(const SizedBox(height: 12));
       }
 
-      // Matkul yang belum punya jadwal tetap bisa membuka sesi
+      // Matkul tanpa jadwal tidak bisa membuka sesi sampai admin mengisi jadwalnya
       final scheduledIds = o.schedules.map((s) => s.course.id).toSet();
       for (final c in o.courses.where((c) => !scheduledIds.contains(c.id))) {
         body.add(_buildLecturerClassCard(
           title: c.name,
           subtitle: '${c.code} • ${c.sks} SKS • ${o.studentCountByCourse[c.id] ?? 0} mhs',
-          time: 'Jadwal belum diatur',
+          time: 'Jadwal belum diatur, hubungi admin',
           room: c.room?.name ?? 'Ruangan belum diatur',
           badgeText: 'Tanpa Jadwal',
           badgeColor: AppColors.badgeOrange,
-          canOpenSession: true,
+          canOpenSession: false,
           onOpen: () => _startOrOpenClassSession(c),
         ));
         body.add(const SizedBox(height: 12));

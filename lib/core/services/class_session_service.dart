@@ -13,55 +13,37 @@ class ClassSessionService {
 
   /// Membuka sesi baru atau mengambil sesi aktif mata kuliah ini (Dosen).
   /// Titik GPS dan radius diambil dari ruangan yang dikunci admin untuk
-  /// mata kuliah tersebut, bukan dari posisi dosen.
+  /// mata kuliah tersebut. Server memastikan sesi hanya dibuka pada hari dan
+  /// jam kuliah sesuai jadwal (fungsi database `open_class_session`).
   static Future<Map<String, dynamic>> getOrCreateActiveSession({
     required String? lecturerId,
     required CourseEntity course,
     required String sessionType,
   }) async {
+    if (lecturerId == null) {
+      throw 'Data login dosen tidak ditemukan. Silakan login ulang.';
+    }
     final room = course.room;
     if (room == null) {
       throw 'Mata kuliah ${course.code} belum memiliki ruangan. '
           'Minta admin menetapkan titik GPS ruangannya.';
     }
-    if (!room.isActive) {
-      throw 'Ruangan ${room.name} sedang dinonaktifkan oleh admin.';
+
+    try {
+      final result = await _supabase.rpc('open_class_session', params: {
+        'p_course_id': course.id,
+        'p_lecturer_id': lecturerId,
+        'p_session_type': _sessionTypeMap[sessionType] ?? 'reguler',
+      });
+
+      final map = Map<String, dynamic>.from(result as Map);
+      if (map['success'] != true) {
+        throw (map['message'] ?? 'Gagal membuka sesi.').toString();
+      }
+      return Map<String, dynamic>.from(map['session'] as Map);
+    } on PostgrestException catch (e) {
+      throw 'Gagal membuka sesi: ${e.message}';
     }
-
-    // 1. Pakai sesi aktif yang sudah ada untuk mata kuliah ini
-    final existing = await _supabase
-        .from('class_sessions')
-        .select()
-        .eq('course_id', course.id)
-        .eq('is_active', true)
-        .order('created_at', ascending: false)
-        .limit(1);
-
-    if (existing.isNotEmpty) {
-      return Map<String, dynamic>.from(existing.first);
-    }
-
-    // 2. Buat sesi baru dengan salinan (snapshot) koordinat ruangan
-    final created = await _supabase
-        .from('class_sessions')
-        .insert({
-          'lecturer_id': lecturerId,
-          'course_id': course.id,
-          'course_code': course.code,
-          'course_name': course.name,
-          'room_id': room.id,
-          'room_name': room.name,
-          'session_type': _sessionTypeMap[sessionType] ?? 'reguler',
-          'target_lat': room.lat,
-          'target_lng': room.lng,
-          'radius_meter': room.radiusMeter,
-          'is_active': true,
-          'started_at': DateTime.now().toUtc().toIso8601String(),
-        })
-        .select()
-        .single();
-
-    return Map<String, dynamic>.from(created);
   }
 
   /// Menutup sesi (presensi tidak bisa lagi dicatat setelah ini).

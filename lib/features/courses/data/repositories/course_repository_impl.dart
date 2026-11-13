@@ -87,6 +87,19 @@ class CourseRepositoryImpl implements CourseRepository {
   Future<void> deleteCourse(String courseId) => _remote.deleteCourse(courseId);
 
   @override
+  Future<void> setSchedules(String courseId, List<CourseScheduleEntity> schedules) =>
+      _remote.replaceSchedules(
+        courseId,
+        schedules
+            .map<Map<String, dynamic>>((s) => {
+                  'day_of_week': s.dayOfWeek,
+                  'start_time': '${s.startTime}:00',
+                  'end_time': '${s.endTime}:00',
+                })
+            .toList(),
+      );
+
+  @override
   Future<List<StudentOption>> getStudents() async {
     final rows = await _remote.fetchStudents();
     return rows
