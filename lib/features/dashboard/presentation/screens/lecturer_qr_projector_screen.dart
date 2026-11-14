@@ -8,6 +8,11 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/services/qr_token_service.dart';
 import '../../../../core/services/class_session_service.dart';
 
+/// Mode orientasi layar proyektor.
+/// landscape = bawaan PRD (layar di-mirror ke TV), portrait = QR ditunjukkan
+/// langsung dari layar HP, auto = mengikuti posisi HP.
+enum _OrientationMode { landscape, portrait, auto }
+
 class LecturerQrProjectorScreen extends StatefulWidget {
   final String sessionId;
   final String courseName;
@@ -30,6 +35,7 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
   String _currentQrPayload = '';
   int _secondsLeft = QrTokenService.tokenTtlSeconds;
   int _currentBlock = 0;
+  _OrientationMode _orientationMode = _OrientationMode.landscape;
   Timer? _qrRefreshTimer;
   RealtimeChannel? _attendanceChannel;
 
@@ -47,12 +53,68 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
 
   // FR-04: kunci landscape, sembunyikan status bar (immersive sticky), layar tetap menyala
   void _enterProjectorMode() {
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    _applyOrientation();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WakelockPlus.enable();
+  }
+
+  void _applyOrientation() {
+    switch (_orientationMode) {
+      case _OrientationMode.landscape:
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+        break;
+      case _OrientationMode.portrait:
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+        break;
+      case _OrientationMode.auto:
+        SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+        break;
+    }
+  }
+
+  String get _orientationLabel {
+    switch (_orientationMode) {
+      case _OrientationMode.landscape:
+        return 'Landscape (mode proyektor)';
+      case _OrientationMode.portrait:
+        return 'Potret (tampil di HP)';
+      case _OrientationMode.auto:
+        return 'Putar otomatis';
+    }
+  }
+
+  IconData get _orientationIcon {
+    switch (_orientationMode) {
+      case _OrientationMode.landscape:
+        return Icons.screen_lock_landscape_rounded;
+      case _OrientationMode.portrait:
+        return Icons.screen_lock_portrait_rounded;
+      case _OrientationMode.auto:
+        return Icons.screen_rotation_rounded;
+    }
+  }
+
+  // Ganti mode: landscape -> potret -> otomatis -> landscape
+  void _cycleOrientation() {
+    setState(() {
+      _orientationMode =
+          _OrientationMode.values[(_orientationMode.index + 1) % _OrientationMode.values.length];
+    });
+    _applyOrientation();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 1),
+          content: Text('Orientasi: $_orientationLabel'),
+        ),
+      );
   }
 
   void _exitProjectorMode() {
@@ -203,6 +265,11 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Orientasi: $_orientationLabel (ketuk untuk ganti)',
+            icon: Icon(_orientationIcon, color: const Color(0xFF94A3B8), size: 20),
+            onPressed: _cycleOrientation,
+          ),
           TextButton.icon(
             onPressed: _confirmEndSession,
             icon: const Icon(Icons.stop_circle_outlined, color: Color(0xFFF87171), size: 18),
