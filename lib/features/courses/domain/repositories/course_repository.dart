@@ -18,7 +18,7 @@ abstract class CourseRepository {
   Future<void> setSchedules(String courseId, List<CourseScheduleEntity> schedules);
 
   // --- KRS: peserta mata kuliah ---
-  Future<List<StudentOption>> getStudents();
+  Future<List<StudentOption>> getStudents();  
   Future<Set<String>> getEnrolledStudentIds(String courseId);
   Future<void> saveEnrollments(String courseId, Set<String> studentIds);
 }
