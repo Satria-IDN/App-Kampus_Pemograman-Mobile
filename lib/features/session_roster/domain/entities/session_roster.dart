@@ -28,6 +28,7 @@ class RosterEntry {
 class SessionRoster {
   final String sessionId;
   final String courseName;
+  final String sessionType; // reguler | workshop | kuliah_tamu
   final bool isActive;
   final DateTime? startedAt;
   final List<RosterEntry> entries;
@@ -35,10 +36,13 @@ class SessionRoster {
   const SessionRoster({
     required this.sessionId,
     required this.courseName,
+    this.sessionType = 'reguler',
     required this.isActive,
     this.startedAt,
     required this.entries,
   });
+
+  bool get isEvent => sessionType != 'reguler';
 
   int get presentCount => entries.where((e) => e.isPresent).length;
   int get excusedCount => entries.where((e) => e.isExcused).length;

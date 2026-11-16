@@ -1,5 +1,4 @@
 import '../../../dispensations/data/repositories/dispensation_repository_impl.dart';
-import '../../../dispensations/domain/entities/dispensation_entity.dart';
 import '../../../dispensations/domain/repositories/dispensation_repository.dart';
 import '../../domain/entities/session_roster.dart';
 import '../../domain/repositories/session_roster_repository.dart';
@@ -105,6 +104,7 @@ class SessionRosterRepositoryImpl implements SessionRosterRepository {
     return SessionRoster(
       sessionId: sessionId,
       courseName: (session['course_name'] ?? '-').toString(),
+      sessionType: _normalizeType(session['session_type']?.toString()),
       isActive: isActive,
       startedAt: startedAt,
       entries: entries,
@@ -121,6 +121,18 @@ class SessionRosterRepositoryImpl implements SessionRosterRepository {
         return 'hadir';
       default:
         return 'alpa';
+    }
+  }
+
+  static String _normalizeType(String? raw) {
+    switch ((raw ?? '').toLowerCase()) {
+      case 'workshop':
+        return 'workshop';
+      case 'kuliah_tamu':
+      case 'tamu':
+        return 'kuliah_tamu';
+      default:
+        return 'reguler';
     }
   }
 

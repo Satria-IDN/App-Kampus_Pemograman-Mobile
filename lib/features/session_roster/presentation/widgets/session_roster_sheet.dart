@@ -104,7 +104,9 @@ class _SessionRosterSheetState extends State<SessionRosterSheet> {
                   _summaryChip('Hadir ${r.presentCount}', AppColors.badgeGreen),
                   _summaryChip('Izin/Sakit ${r.excusedCount}', AppColors.badgeOrange),
                   _summaryChip(
-                    r.isActive ? 'Belum hadir ${r.absentCount}' : 'Alpa ${r.absentCount}',
+                    r.isActive
+                        ? 'Belum hadir ${r.absentCount}'
+                        : (r.isEvent ? 'Tidak hadir ${r.absentCount}' : 'Alpa ${r.absentCount}'),
                     AppColors.badgeRed,
                   ),
                 ],
@@ -124,7 +126,7 @@ class _SessionRosterSheetState extends State<SessionRosterSheet> {
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                       itemCount: r.entries.length,
                       separatorBuilder: (context, index) => const SizedBox(height: 8),
-                      itemBuilder: (context, i) => _buildTile(r.entries[i], r.isActive),
+                      itemBuilder: (context, i) => _buildTile(r.entries[i], r.isEvent),
                     ),
             ),
           ],
@@ -144,7 +146,7 @@ class _SessionRosterSheetState extends State<SessionRosterSheet> {
     );
   }
 
-  Widget _buildTile(RosterEntry e, bool sessionActive) {
+  Widget _buildTile(RosterEntry e, bool isEvent) {
     Color color;
     String label;
     if (e.isPresent) {
@@ -161,7 +163,7 @@ class _SessionRosterSheetState extends State<SessionRosterSheet> {
       label = 'Belum hadir';
     } else {
       color = AppColors.badgeRed;
-      label = 'Alpa';
+      label = isEvent ? 'Tidak hadir' : 'Alpa';
     }
 
     final parts = <String>['NIM ${e.nim}'];

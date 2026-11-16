@@ -36,6 +36,7 @@ class LecturerSessionRecord {
   final String courseName;
   final String? roomName;
   final String sessionType; // reguler | workshop | kuliah_tamu
+  final String? eventTitle; // judul event (workshop / kuliah tamu)
   final DateTime? startedAt;
   final bool isActive;
   final int meetingNumber;
@@ -49,6 +50,7 @@ class LecturerSessionRecord {
     required this.courseName,
     this.roomName,
     required this.sessionType,
+    this.eventTitle,
     this.startedAt,
     required this.isActive,
     required this.meetingNumber,
@@ -57,12 +59,26 @@ class LecturerSessionRecord {
     required this.excused,
   });
 
-  /// Alpa baru dihitung setelah sesi ditutup.
-  int get alpa {
+  bool get isEvent => sessionType != 'reguler';
+
+  bool get hasEventTitle => eventTitle != null && eventTitle!.isNotEmpty;
+
+  /// Nama yang ditampilkan: judul event bila ada, selain itu nama mata kuliah.
+  String get displayTitle => hasEventTitle ? eventTitle! : courseName;
+
+  /// Judul untuk daftar riwayat.
+  String get listTitle =>
+      hasEventTitle ? '$eventTitle • $courseName' : '$courseName - Pertemuan $meetingNumber';
+
+  /// Mahasiswa yang tidak hadir setelah sesi ditutup (belum dihitung alpa).
+  int get notAttended {
     if (isActive) return 0;
     final a = enrolled - present - excused;
     return a < 0 ? 0 : a;
   }
+
+  /// Alpa hanya berlaku untuk sesi reguler; absen di event bersifat netral.
+  int get alpa => isEvent ? 0 : notAttended;
 
   double get percentage => enrolled > 0 ? present * 100 / enrolled : 0;
 }

@@ -19,6 +19,7 @@ class ClassSessionService {
     required String? lecturerId,
     required CourseEntity course,
     required String sessionType,
+    String? eventTitle,
   }) async {
     if (lecturerId == null) {
       throw 'Data login dosen tidak ditemukan. Silakan login ulang.';
@@ -34,6 +35,7 @@ class ClassSessionService {
         'p_course_id': course.id,
         'p_lecturer_id': lecturerId,
         'p_session_type': _sessionTypeMap[sessionType] ?? 'reguler',
+        'p_event_title': (eventTitle == null || eventTitle.trim().isEmpty) ? null : eventTitle.trim(),
       });
 
       final map = Map<String, dynamic>.from(result as Map);

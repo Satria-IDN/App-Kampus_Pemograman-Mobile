@@ -29,6 +29,13 @@ class LecturerDashboardScreen extends StatefulWidget {
 class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
   int _currentNavIndex = 0; // 0: Beranda, 1: Jadwal, 2: Riwayat, 3: Profil
   String _selectedCategory = 'Reguler'; // Reguler, Workshop, Tamu
+  final TextEditingController _eventTitleCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _eventTitleCtrl.dispose();
+    super.dispose();
+  }
 
 
   final LecturerAcademicRepositoryImpl _academicRepo = LecturerAcademicRepositoryImpl();
@@ -69,6 +76,11 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
       return (canOpen: true, reason: 'Sesi sedang aktif');
     }
 
+    // Event (workshop / kuliah tamu) boleh dibuka kapan saja oleh dosen pengampu
+    if (_selectedCategory != 'Reguler') {
+      return (canOpen: true, reason: 'Event $_selectedCategory: bisa dibuka kapan saja');
+    }
+
     final slots = o.schedules.where((s) => s.course.id == c.id).toList();
     if (slots.isEmpty) {
       return (canOpen: false, reason: 'Jadwal belum diatur admin');
@@ -92,6 +104,11 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
 
   // Dosen memilih mata kuliah yang diampu; hanya matkul yang sedang waktunya yang bisa dibuka
   Future<void> _openCoursePicker() async {
+    if (_selectedCategory != 'Reguler' && _eventTitleCtrl.text.trim().length < 3) {
+      _showMessage('Isi judul event dulu (minimal 3 karakter).');
+      return;
+    }
+
     final o = _overview;
     if (o == null) {
       _showMessage('Data perkuliahan belum termuat. Coba lagi sebentar.');
@@ -117,9 +134,11 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark),
               ),
               const SizedBox(height: 2),
-              const Text(
-                'Sesi hanya bisa dibuka pada hari dan jam kuliah sesuai jadwal.',
-                style: TextStyle(fontSize: 11, color: AppColors.textGrey),
+              Text(
+                _selectedCategory == 'Reguler'
+                    ? 'Sesi reguler hanya bisa dibuka pada hari dan jam kuliah sesuai jadwal.'
+                    : 'Kategori $_selectedCategory: event bisa dibuka kapan saja.',
+                style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
               ),
               const SizedBox(height: 8),
               Flexible(
@@ -171,10 +190,12 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
         lecturerId: widget.user?.id,
         course: course,
         sessionType: _selectedCategory,
+        eventTitle: _selectedCategory == 'Reguler' ? null : _eventTitleCtrl.text.trim(),
       );
 
       if (!mounted) return;
       Navigator.pop(context); // Tutup dialog loading
+      _eventTitleCtrl.clear();
 
       // Masuk ke mode proyektor dengan data sesi riil
       await Navigator.push(
@@ -182,7 +203,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
         MaterialPageRoute(
           builder: (_) => LecturerQrProjectorScreen(
             sessionId: session['id'].toString(),
-            courseName: course.name,
+            courseName: (session['event_title'] ?? course.name).toString(),
             roomName: course.room?.name ?? '-',
           ),
         ),
@@ -364,7 +385,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (_) => SessionRosterSheet(
-        title: '${s.courseName} - Pertemuan ${s.meetingNumber}',
+        title: s.listTitle,
         load: () => _getRoster(s.sessionId),
       ),
     );
@@ -407,7 +428,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
       MaterialPageRoute(
         builder: (_) => LecturerQrProjectorScreen(
           sessionId: s.sessionId,
-          courseName: s.courseName,
+          courseName: s.displayTitle,
           roomName: s.roomName ?? '-',
         ),
       ),
@@ -657,7 +678,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        focus?.courseName ?? 'Belum ada sesi aktif',
+                        focus?.displayTitle ?? 'Belum ada sesi aktif',
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textDark),
                       ),
                       const SizedBox(height: 2),
@@ -708,6 +729,31 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
                   _buildCategoryChip('Tamu', Icons.groups_outlined),
                 ],
               ),
+              if (_selectedCategory != 'Reguler') ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _eventTitleCtrl,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    labelText: 'Judul event',
+                    hintText: _selectedCategory == 'Tamu'
+                        ? 'Contoh: Kuliah Tamu AI di Industri'
+                        : 'Contoh: Workshop Flutter Dasar',
+                    isDense: true,
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Event bisa dibuka kapan saja dan absennya tidak dihitung alpa.',
+                  style: TextStyle(fontSize: 10, color: AppColors.textGrey),
+                ),
+              ],
               const SizedBox(height: 14),
             ],
 
@@ -932,7 +978,9 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
               s.sessionType == 'reguler' ? '' : ' • ${SessionTypes.label(s.sessionType)}';
           final recap = s.isActive
               ? '${s.present} Hadir (sesi berlangsung)'
-              : '${s.present} Hadir, ${s.excused} Izin, ${s.alpa} Alpa';
+              : (s.isEvent
+                  ? '${s.present} Hadir, ${s.excused} Izin, ${s.notAttended} tidak hadir (bukan alpa)'
+                  : '${s.present} Hadir, ${s.excused} Izin, ${s.alpa} Alpa');
           final pct = s.isActive
               ? 'Aktif'
               : (s.enrolled > 0 ? '${s.percentage.toStringAsFixed(0)}% Kehadiran' : '-');
@@ -940,7 +988,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
           body.add(GestureDetector(
             onTap: () => _openRoster(s),
             child: _buildHistorySessionCard(
-              '${s.courseName} - Pertemuan ${s.meetingNumber}',
+              s.listTitle,
               '${_formatDate(s.startedAt)} • ${s.roomName ?? '-'}$typeSuffix',
               recap,
               pct,

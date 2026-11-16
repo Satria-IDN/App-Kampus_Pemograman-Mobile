@@ -27,7 +27,7 @@ class LecturerAcademicRemoteDataSource {
     final rows = await _db
         .from('class_sessions')
         .select(
-          'id, course_id, course_name, room_name, session_type, is_active, '
+          'id, course_id, course_name, room_name, session_type, event_title, is_active, '
           'started_at, created_at, attendance_logs(student_id, status)',
         )
         .inFilter('course_id', courseIds)

@@ -131,6 +131,7 @@ class LecturerAcademicRepositoryImpl implements LecturerAcademicRepository {
         courseName: (s['course_name'] ?? '-').toString(),
         roomName: s['room_name']?.toString(),
         sessionType: _normalizeType(s['session_type']?.toString()),
+        eventTitle: _cleanTitle(s['event_title']),
         startedAt: _sessionTime(s),
         isActive: isActive,
         meetingNumber: meetingNumber[id] ?? 0,
@@ -187,6 +188,11 @@ class LecturerAcademicRepositoryImpl implements LecturerAcademicRepository {
     final raw = s['started_at'] ?? s['created_at'];
     if (raw == null) return null;
     return DateTime.tryParse(raw.toString())?.toLocal();
+  }
+
+  static String? _cleanTitle(dynamic v) {
+    final t = v?.toString().trim() ?? '';
+    return t.isEmpty ? null : t;
   }
 
   static String _hhmm(dynamic value) {

@@ -79,7 +79,7 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
             default:
               alpa++;
           }
-        } else if (!isActive) {
+        } else if (!isActive && _normalizeType(s['session_type']?.toString()) == 'reguler') {
           // Sesi sudah ditutup dan tidak ada presensi: alpa, kecuali ada
           // dispensasi disetujui untuk matkul dan tanggal sesi tersebut.
           final sessionTime = _parseTime(s['started_at'] ?? s['created_at']);
@@ -91,7 +91,7 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
             alpa++;
           }
           alpaRecords.add(AttendanceRecord(
-            courseName: (s['course_name'] ?? c['course_name'] ?? '-').toString(),
+            courseName: _displayName(s, c['course_name']?.toString() ?? '-'),
             roomName: s['room_name']?.toString(),
             time: sessionTime,
             status: excuse ?? 'Alpa',
@@ -122,7 +122,7 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
       activeSessions.add(ActiveSessionInfo(
         sessionId: s['id'] as String,
         courseCode: (s['course_code'] ?? '').toString(),
-        courseName: (s['course_name'] ?? '').toString(),
+        courseName: _displayName(s, ''),
         roomName: s['room_name']?.toString(),
       ));
     }
@@ -159,7 +159,7 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
     for (final a in attendanceRows) {
       final cs = a['class_sessions'];
       history.add(AttendanceRecord(
-        courseName: cs is Map<String, dynamic> ? (cs['course_name'] ?? '-').toString() : '-',
+        courseName: cs is Map<String, dynamic> ? _displayName(cs, '-') : '-',
         roomName: cs is Map<String, dynamic> ? cs['room_name']?.toString() : null,
         time: _parseTime(a['scanned_at']),
         status: _normalizeStatus(a['status']?.toString()),
@@ -203,6 +203,13 @@ class StudentAcademicRepositoryImpl implements StudentAcademicRepository {
       default:
         return 'Alpa';
     }
+  }
+
+  /// Nama sesi: "Judul Event (Mata Kuliah)" bila event punya judul, selain itu nama matkul.
+  static String _displayName(Map<String, dynamic> m, String fallbackCourse) {
+    final course = (m['course_name'] ?? fallbackCourse).toString();
+    final title = (m['event_title'] ?? '').toString().trim();
+    return title.isEmpty ? course : '$title ($course)';
   }
 
   /// Menyamakan nilai lama ('Reguler', 'Tamu') dengan nilai PRD.

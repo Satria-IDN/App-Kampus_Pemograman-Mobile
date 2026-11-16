@@ -8,7 +8,7 @@ class SessionRosterRemoteDataSource {
   Future<Map<String, dynamic>?> fetchSession(String sessionId) async {
     return await _db
         .from('class_sessions')
-        .select('id, course_id, course_name, is_active, started_at, created_at')
+        .select('id, course_id, course_name, session_type, is_active, started_at, created_at')
         .eq('id', sessionId)
         .maybeSingle();
   }
