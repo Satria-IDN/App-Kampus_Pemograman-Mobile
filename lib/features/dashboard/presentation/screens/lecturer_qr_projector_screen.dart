@@ -7,6 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/services/qr_token_service.dart';
 import '../../../../core/services/class_session_service.dart';
+import '../../../session_roster/data/repositories/session_roster_repository_impl.dart';
+import '../../../session_roster/domain/entities/session_roster.dart';
+import '../../../session_roster/domain/usecases/get_session_roster.dart';
 
 /// Mode orientasi layar proyektor.
 /// landscape = bawaan PRD (layar di-mirror ke TV), portrait = QR ditunjukkan
@@ -42,11 +45,18 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
   List<Map<String, dynamic>> _attendees = [];
   bool _isLoadingInitialData = true;
 
+  // Daftar peserta (KRS) untuk tab "Belum Hadir"
+  final GetSessionRoster _getRoster = GetSessionRoster(SessionRosterRepositoryImpl());
+  List<RosterEntry> _roster = [];
+  bool _isLoadingRoster = true;
+  bool _showAbsent = false;
+
   @override
   void initState() {
     super.initState();
     _enterProjectorMode();
     _fetchExistingAttendance();
+    _loadRoster();
     _startDynamicQrCycle();
     _subscribeToLiveAttendance();
   }
@@ -124,11 +134,17 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
   }
 
   Future<void> _confirmEndSession() async {
+    final absent = _pendingEntries.where((e) => e.isAbsent).length;
+    final message = absent > 0
+        ? 'Setelah diakhiri, mahasiswa tidak bisa lagi melakukan presensi. '
+            '$absent mahasiswa yang belum hadir akan dihitung alpa.'
+        : 'Setelah diakhiri, mahasiswa tidak bisa lagi melakukan presensi pada sesi ini.';
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Akhiri sesi presensi?'),
-        content: const Text('Setelah diakhiri, mahasiswa tidak bisa lagi melakukan presensi pada sesi ini.'),
+        content: Text(message),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Akhiri')),
@@ -157,6 +173,36 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
       _supabase.removeChannel(_attendanceChannel!);
     }
     super.dispose();
+  }
+
+  // Peserta terdaftar (KRS) beserta statusnya saat proyektor dibuka
+  Future<void> _loadRoster() async {
+    try {
+      final roster = await _getRoster(widget.sessionId);
+      if (!mounted) return;
+      setState(() {
+        _roster = roster.entries;
+        _isLoadingRoster = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingRoster = false);
+    }
+  }
+
+  Set<String> get _attendeeIds {
+    final ids = <String>{};
+    for (final a in _attendees) {
+      final p = a['profiles'];
+      if (p is Map<String, dynamic> && p['id'] != null) ids.add(p['id'].toString());
+    }
+    return ids;
+  }
+
+  /// Peserta yang belum presensi (termasuk yang izin/sakit disetujui),
+  /// otomatis berkurang saat mahasiswa memindai QR secara realtime.
+  List<RosterEntry> get _pendingEntries {
+    final present = _attendeeIds;
+    return _roster.where((e) => !e.isPresent && !present.contains(e.studentId)).toList();
   }
 
   // 1. Ambil data mahasiswa yang sudah hadir sebelum proyektor dibuka
@@ -413,129 +459,243 @@ class _LecturerQrProjectorScreenState extends State<LecturerQrProjectorScreen> {
   // ==========================================
   // PANEL DAFTAR KEHADIRAN REALTIME
   // ==========================================
+  Widget _tabChip(String label, {required bool selected, required Color color, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? color : const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? color : const Color(0xFF334155)),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.white : const Color(0xFF94A3B8),
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildAttendeePanel() {
+    final pending = _pendingEntries;
+    final absentCount = pending.where((e) => e.isAbsent).length;
+
     return Container(
       color: const Color(0xFF131D31),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
             children: [
-              const Expanded(
-                child: Text(
-                  'Daftar Kehadiran Masuk',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                ),
+              _tabChip(
+                'Hadir (${_attendees.length})',
+                selected: !_showAbsent,
+                color: AppColors.primary,
+                onTap: () => setState(() => _showAbsent = false),
               ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${_attendees.length} Mahasiswa',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                ),
+              _tabChip(
+                'Belum Hadir ($absentCount)',
+                selected: _showAbsent,
+                color: AppColors.badgeRed,
+                onTap: () => setState(() => _showAbsent = true),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Expanded(
-            child: _isLoadingInitialData
-                ? const Center(child: CircularProgressIndicator())
-                : _attendees.isEmpty
-                ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.qr_code_scanner_rounded, size: 48, color: Color(0xFF475569)),
-                  SizedBox(height: 10),
-                  Text(
-                    'Menunggu mahasiswa memindai QR...',
-                    style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
-                  ),
-                ],
-              ),
-            )
-                : ListView.separated(
-              itemCount: _attendees.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final item = _attendees[index];
-                final profile = item['profiles'] as Map<String, dynamic>?;
-                final name = profile?['name'] ?? 'Mahasiswa';
-                final nim = profile?['identifier_id'] ?? '-';
-                final dist = item['verified_distance'] != null
-                    ? '${(item['verified_distance'] as num).toStringAsFixed(1)}m'
-                    : 'Terverifikasi';
-
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF334155)),
-                  ),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 16,
-                        backgroundColor: AppColors.badgeGreen.withValues(alpha: 0.15),
-                        child: const Icon(Icons.check_rounded, color: AppColors.badgeGreen, size: 18),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                            Text(
-                              'NIM: $nim',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F172A),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          dist,
-                          style: const TextStyle(
-                            color: AppColors.badgeGreen,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
+          Expanded(child: _showAbsent ? _buildAbsentList(pending) : _buildHadirList()),
         ],
       ),
+    );
+  }
+
+  Widget _buildHadirList() {
+    if (_isLoadingInitialData) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_attendees.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.qr_code_scanner_rounded, size: 48, color: Color(0xFF475569)),
+            SizedBox(height: 10),
+            Text(
+              'Menunggu mahasiswa memindai QR...',
+              style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.separated(
+      itemCount: _attendees.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final item = _attendees[index];
+        final profile = item['profiles'] as Map<String, dynamic>?;
+        final name = profile?['name'] ?? 'Mahasiswa';
+        final nim = profile?['identifier_id'] ?? '-';
+        final dist = item['verified_distance'] != null
+            ? '${(item['verified_distance'] as num).toStringAsFixed(1)}m'
+            : 'Terverifikasi';
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF334155)),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: AppColors.badgeGreen.withValues(alpha: 0.15),
+                child: const Icon(Icons.check_rounded, color: AppColors.badgeGreen, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    Text(
+                      'NIM: $nim',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  dist,
+                  style: const TextStyle(
+                    color: AppColors.badgeGreen,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAbsentList(List<RosterEntry> pending) {
+    if (_isLoadingRoster) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_roster.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text(
+            'Belum ada peserta terdaftar (KRS) untuk mata kuliah ini.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+          ),
+        ),
+      );
+    }
+    if (pending.isEmpty) {
+      return const Center(
+        child: Text(
+          'Semua peserta sudah hadir.',
+          style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      itemCount: pending.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final e = pending[index];
+        final excused = e.isExcused;
+        final color = excused ? AppColors.badgeOrange : AppColors.badgeRed;
+        final label = e.status == 'sakit' ? 'Sakit' : (e.status == 'izin' ? 'Izin' : 'Belum hadir');
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF334155)),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: color.withValues(alpha: 0.15),
+                child: Icon(
+                  excused ? Icons.assignment_turned_in_outlined : Icons.person_off_rounded,
+                  color: color,
+                  size: 17,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      e.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    Text(
+                      'NIM: ${e.nim}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  label,
+                  style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

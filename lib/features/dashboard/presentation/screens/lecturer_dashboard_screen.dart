@@ -12,6 +12,9 @@ import '../../../dispensations/data/repositories/dispensation_repository_impl.da
 import '../../../dispensations/domain/usecases/dispensation_usecases.dart';
 import '../../../dispensations/presentation/widgets/dispensation_review_sheet.dart';
 import '../../../lecturer_academic/data/repositories/lecturer_academic_repository_impl.dart';
+import '../../../session_roster/data/repositories/session_roster_repository_impl.dart';
+import '../../../session_roster/domain/usecases/get_session_roster.dart';
+import '../../../session_roster/presentation/widgets/session_roster_sheet.dart';
 import '../../../lecturer_academic/domain/entities/lecturer_academic_entities.dart';
 import '../../../lecturer_academic/domain/usecases/get_lecturer_overview.dart';
 
@@ -38,6 +41,8 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
   final DispensationRepositoryImpl _dispensationRepo = DispensationRepositoryImpl();
   late final ReviewDispensation _reviewDispensation = ReviewDispensation(_dispensationRepo);
   late final GetDispensationDocumentUrl _getDocumentUrl = GetDispensationDocumentUrl(_dispensationRepo);
+
+  late final GetSessionRoster _getRoster = GetSessionRoster(SessionRosterRepositoryImpl());
 
   @override
   void initState() {
@@ -346,6 +351,22 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: Text(text, style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+    );
+  }
+
+  // Daftar hadir satu sesi: siapa yang hadir, izin/sakit, dan tidak hadir
+  Future<void> _openRoster(LecturerSessionRecord s) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SessionRosterSheet(
+        title: '${s.courseName} - Pertemuan ${s.meetingNumber}',
+        load: () => _getRoster(s.sessionId),
+      ),
     );
   }
 
@@ -916,11 +937,14 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
               ? 'Aktif'
               : (s.enrolled > 0 ? '${s.percentage.toStringAsFixed(0)}% Kehadiran' : '-');
 
-          body.add(_buildHistorySessionCard(
-            '${s.courseName} - Pertemuan ${s.meetingNumber}',
-            '${_formatDate(s.startedAt)} • ${s.roomName ?? '-'}$typeSuffix',
-            recap,
-            pct,
+          body.add(GestureDetector(
+            onTap: () => _openRoster(s),
+            child: _buildHistorySessionCard(
+              '${s.courseName} - Pertemuan ${s.meetingNumber}',
+              '${_formatDate(s.startedAt)} • ${s.roomName ?? '-'}$typeSuffix',
+              recap,
+              pct,
+            ),
           ));
           body.add(const SizedBox(height: 10));
         }
@@ -930,7 +954,7 @@ class _LecturerDashboardScreenState extends State<LecturerDashboardScreen> {
     return _tabScroll([
       const Text('Riwayat Sesi Perkuliahan', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textDark)),
       const SizedBox(height: 4),
-      const Text('Log Berita Acara Perkuliahan (BAP) & Rekap Mahasiswa', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+      const Text('Ketuk sesi untuk melihat siapa yang hadir dan tidak hadir', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
       const SizedBox(height: 12),
       SessionTypeFilterBar(
         selected: _historyFilter,
